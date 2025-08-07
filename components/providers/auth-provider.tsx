@@ -14,6 +14,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, profileData: Omit<ProfileInsert, 'id' | 'created_at' | 'updated_at'>) => Promise<{ error?: Error }>
   signIn: (email: string, password: string) => Promise<{ error?: Error }>
   signOut: () => Promise<{ error?: Error }>
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -93,6 +94,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(profile || null)
     } catch (error) {
       console.error('Error in fetchProfile:', error)
+    }
+  }
+
+  const refreshProfile = async () => {
+    if (user) {
+      await fetchProfile(user.id)
     }
   }
 
@@ -196,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signIn,
     signOut,
+    refreshProfile,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
