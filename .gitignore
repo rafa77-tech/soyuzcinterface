@@ -61,6 +61,12 @@ Thumbs.db
 *.swo
 *~
 
+# Development tools and configurations
+.bmad-core/
+.claude/
+.cursor/
+.github/
+
 # Testing
 /coverage
 
