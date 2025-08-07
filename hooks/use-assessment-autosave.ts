@@ -39,7 +39,7 @@ export function useAssessmentAutoSave({
     assessmentId: null
   })
 
-  const timeoutRef = useRef<NodeJS.Timeout>()
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastSaveRef = useRef<AssessmentProgress | null>(null)
 
   // Local storage backup key

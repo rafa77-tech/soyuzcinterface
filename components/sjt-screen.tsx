@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import { SavingIndicator } from '@/components/ui/saving-indicator'
+import { useAssessmentAutoSave } from '@/hooks/use-assessment-autosave'
 
 interface SJTScreenProps {
   onNext: () => void
@@ -53,17 +55,63 @@ export function SJTScreen({ onNext, onResults }: SJTScreenProps) {
   const [answers, setAnswers] = useState<number[]>([])
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null)
 
-  const handleNext = () => {
+  const { 
+    saveProgress, 
+    saveFinalResults, 
+    loadIncompleteAssessment,
+    isSaving, 
+    error,
+    lastSaved 
+  } = useAssessmentAutoSave({
+    assessmentType: 'sjt',
+    debounceMs: 500,
+    enableLocalBackup: true
+  })
+
+  // Carregar dados salvos ao montar o componente
+  useEffect(() => {
+    const loadSavedData = async () => {
+      try {
+        const savedAssessment = await loadIncompleteAssessment()
+        if (savedAssessment?.sjt_results) {
+          setAnswers(savedAssessment.sjt_results)
+          // Definir cenário atual baseado no número de respostas
+          const savedProgress = savedAssessment.sjt_results.length
+          if (savedProgress < scenarios.length) {
+            setCurrentScenario(savedProgress)
+          }
+        }
+      } catch (error) {
+        console.warn('Falha ao carregar dados salvos:', error)
+      }
+    }
+
+    loadSavedData()
+  }, [loadIncompleteAssessment])
+
+  const handleNext = async () => {
     if (selectedAnswer !== null) {
       const newAnswers = [...answers, selectedAnswer]
       setAnswers(newAnswers)
+      
+      // Auto-save imediato após resposta
+      saveProgress(null, currentScenario + 1, { sjt_results: newAnswers })
       
       if (currentScenario < scenarios.length - 1) {
         setCurrentScenario(currentScenario + 1)
         setSelectedAnswer(null)
       } else {
-        onResults(newAnswers)
-        onNext()
+        try {
+          // Salvar resultados finais
+          await saveFinalResults({ sjt_results: newAnswers })
+          onResults(newAnswers)
+          onNext()
+        } catch (error) {
+          console.error('Erro ao salvar resultados finais:', error)
+          // Continuar mesmo com erro de salvamento
+          onResults(newAnswers)
+          onNext()
+        }
       }
     }
   }
@@ -76,9 +124,15 @@ export function SJTScreen({ onNext, onResults }: SJTScreenProps) {
         <CardHeader>
           <div className="flex justify-between items-center mb-4">
             <CardTitle className="text-2xl font-bold text-white">Julgamento Situacional</CardTitle>
-            <span className="text-sm text-gray-400">
-              {currentScenario + 1} de {scenarios.length}
-            </span>
+            <div className="flex items-center gap-4">
+              <SavingIndicator 
+                status={isSaving ? 'saving' : error ? 'error' : lastSaved ? 'saved' : 'idle'} 
+                className="text-xs"
+              />
+              <span className="text-sm text-gray-400">
+                {currentScenario + 1} de {scenarios.length}
+              </span>
+            </div>
           </div>
           <Progress value={progress} className="w-full" />
         </CardHeader>

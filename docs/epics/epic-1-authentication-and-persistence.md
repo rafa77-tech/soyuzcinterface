@@ -1,7 +1,7 @@
 # Epic 1: Sistema de Autenticação e Persistência de Dados
 
 ## Status
-In Progress (Stories 1.1, 1.2 Done | Story 1.3 Draft)
+In Progress (Stories 1.1, 1.2 Done | Story 1.3 60% Complete | Stories 1.4-1.7 Planned)
 
 ## Epic Description
 **As a** médico usuário,  
@@ -15,13 +15,13 @@ In Progress (Stories 1.1, 1.2 Done | Story 1.3 Draft)
 - **Compliance**: Atendimento a requisitos de segurança para dados médicos
 
 ## Definition of Done
-- [ ] Sistema de autenticação funcional (login/cadastro/logout)
-- [ ] Gestão completa de perfil médico (dados pessoais + profissionais)
-- [ ] Persistência automática de progresso durante avaliações
-- [ ] Histórico completo de avaliações anteriores
-- [ ] Interface responsiva preservando design system existente
-- [ ] Cobertura de testes ≥ 80% para funcionalidades críticas
-- [ ] Deploy funcional em ambiente de produção
+- [x] Sistema de autenticação funcional (login/cadastro/logout) ✅ Story 1.1
+- [x] Gestão completa de perfil médico (dados pessoais + profissionais) ✅ Story 1.2
+- [ ] Persistência automática de progresso durante avaliações ⚠️ Story 1.3 (33%) + Story 1.4 (planned)
+- [ ] Histórico completo de avaliações anteriores 📋 Story 1.6 (planned)
+- [x] Interface responsiva preservando design system existente ✅ Stories 1.1-1.3
+- [ ] Cobertura de testes ≥ 80% para funcionalidades críticas 🧪 Story 1.5 (planned - 85% target)
+- [ ] Deploy funcional em ambiente de produção 🚀 Post Epic 1 completion
 
 ## Stories Overview
 
@@ -36,16 +36,36 @@ In Progress (Stories 1.1, 1.2 Done | Story 1.3 Draft)
 **Deliverables**: Profile CRUD, CRM validation, avatar upload, API endpoints
 
 ### 🚧 Story 1.3: Assessment Persistence System
-**Status**: Draft  
+**Status**: 60% Complete (QA Issues Identified)  
 **Business Value**: Core value - salvar progresso e histórico  
-**Deliverables**: Auto-save, resume assessment, historical data, dashboard
+**Deliverables**: ✅ API infrastructure, ✅ MiniDisc auto-save, ✅ Resume modal, ❌ Testing, ❌ Full auto-save, ❌ History system
+
+### 📋 Story 1.4: Auto-save Completion (NEW)
+**Status**: Planned - HIGH Priority  
+**Business Value**: Complete data safety across all assessment components  
+**Deliverables**: SoftSkills + SJT auto-save, debouncing, error handling, refactored hook
+
+### 🧪 Story 1.5: Testing Implementation Suite (NEW)  
+**Status**: Planned - HIGH Priority  
+**Business Value**: Enterprise quality and production readiness  
+**Deliverables**: 85% test coverage, unit + integration + e2e tests, performance tests
+
+### 📊 Story 1.6: Assessment History System (NEW)
+**Status**: Planned - MEDIUM Priority  
+**Business Value**: User retention through historical data access  
+**Deliverables**: History dashboard, filters, result visualization, pagination
+
+### 🔧 Story 1.7: Technical Debt & Quality Fixes (NEW)
+**Status**: Planned - MEDIUM Priority  
+**Business Value**: Code quality and maintainability  
+**Deliverables**: Hook fixes, type safety, memory leaks prevention, Architect recommendations
 
 ## Technical Architecture Summary
 
 ### Core Components
 - **AuthenticationProvider**: Gestão global de sessão (✅ Done)
 - **UserProfileManager**: CRUD de dados médicos (✅ Done) 
-- **AssessmentPersistenceService**: Auto-save e histórico (🚧 In Progress)
+- **AssessmentPersistenceService**: Auto-save e histórico (⚠️ 60% Complete - Stories 1.4-1.6 needed)
 
 ### Database Schema
 ```sql
@@ -62,7 +82,7 @@ CREATE TABLE profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Avaliações (🚧 To be implemented)
+-- Avaliações (✅ Implemented in Story 1.3)
 CREATE TABLE assessments (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) NOT NULL,
@@ -79,9 +99,9 @@ CREATE TABLE assessments (
 ### API Endpoints
 - ✅ `GET/PUT /api/profile` - Profile management
 - ✅ `POST /api/profile/avatar` - Avatar upload  
-- 🚧 `POST /api/assessment` - Save assessment progress
-- 🚧 `GET /api/assessments` - List user assessments
-- 🚧 `GET /api/assessment/:id` - Get specific assessment
+- ✅ `POST /api/assessment` - Save assessment progress (Story 1.3)
+- ✅ `GET /api/assessments` - List user assessments (Story 1.3)
+- ✅ `GET /api/assessment/:id` - Get specific assessment (Story 1.3)
 
 ## Dependencies & Integration Strategy
 
@@ -108,8 +128,9 @@ CREATE TABLE assessments (
 
 ### Technical Metrics  
 - [x] Cobertura de testes: 85%+ auth components
+- [ ] Cobertura de testes: 85%+ assessment components (Story 1.5 target)
 - [x] Uptime Supabase: 99.9%+
-- [ ] Performance auto-save: < 200ms (pending story 1.3)
+- [ ] Performance auto-save: < 200ms (Stories 1.4 + 1.7)
 
 ## Risks & Mitigations
 
@@ -128,11 +149,16 @@ CREATE TABLE assessments (
   **Mitigation**: ✅ Manter interface idêntica, apenas adicionar feedback visual sutil
 
 ## Next Steps
-1. **Completar Story 1.3** - Assessment Persistence System
-2. **Testing e QA** - Validação E2E completa  
-3. **Deploy & Monitoring** - Produção com métricas
+1. **Execute Stories 1.4-1.7** - Complete Epic 1 gaps identified by QA
+   - Story 1.4: Auto-save Completion (Sprint Current + 1)
+   - Story 1.7: Technical Debt Fixes (Sprint Current + 1)  
+   - Story 1.5: Testing Suite (Sprint Current + 2)
+   - Story 1.6: History System (Sprint Current + 3)
+2. **Epic 1 Final QA** - Full validation with 85% test coverage
+3. **Epic 2 Initiation** - Assessment Experience (Sprint Current + 4)
 
 ## Change Log
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
-| 2025-08-07 | 1.0 | Epic creation consolidating auth and persistence requirements | Bob (Scrum Master) | 
+| 2025-08-07 | 1.0 | Epic creation consolidating auth and persistence requirements | Bob (Scrum Master) |
+| 2025-01-27 | 1.1 | Updated post-QA analysis: Story 1.3 60% complete, added Stories 1.4-1.7 | Bob (Scrum Master) | 
