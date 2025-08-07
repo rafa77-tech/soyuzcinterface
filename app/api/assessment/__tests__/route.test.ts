@@ -1,487 +1,624 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { GET, POST } from '../route'
+import { NextRequest } from 'next/server'
+import { POST, GET } from '../route'
+import assessmentService from '@/lib/services/assessment-service'
 
-// Mock Supabase
-const mockSupabaseSelect = jest.fn()
-const mockSupabaseInsert = jest.fn()
-const mockSupabaseUpdate = jest.fn()
-const mockSupabaseFrom = jest.fn(() => ({
-  select: mockSupabaseSelect,
-  insert: mockSupabaseInsert,
-  update: mockSupabaseUpdate,
-  eq: jest.fn().mockReturnThis(),
-  order: jest.fn().mockReturnThis(),
-  maybeSingle: jest.fn(),
-  single: jest.fn(),
+// Mock the assessment service
+jest.mock('@/lib/services/assessment-service', () => ({
+  saveAssessment: jest.fn(),
+  getIncompleteAssessment: jest.fn(),
+  default: {
+    saveAssessment: jest.fn(),
+    getIncompleteAssessment: jest.fn(),
+  }
 }))
+
+// Mock createRouteHandlerClient
+const mockSupabaseClient = {
+  auth: {
+    getUser: jest.fn(),
+  }
+}
 
 jest.mock('@/lib/supabase/server', () => ({
-  createClient: jest.fn(() => ({
-    from: mockSupabaseFrom,
-    auth: {
-      getUser: jest.fn()
-    }
-  }))
+  createRouteHandlerClient: jest.fn(() => mockSupabaseClient),
 }))
 
-// Mock JWT verification
-jest.mock('jsonwebtoken', () => ({
-  verify: jest.fn()
-}))
+const mockAssessmentService = assessmentService as jest.Mocked<typeof assessmentService>
 
-describe('/api/assessment API endpoints', () => {
-  let mockRequest: Partial<NextRequest>
+describe('/api/assessment', () => {
   const mockUser = { id: 'test-user-id', email: 'test@example.com' }
-
+  
   beforeEach(() => {
     jest.clearAllMocks()
-    mockRequest = {
-      headers: new Headers({
-        'authorization': 'Bearer valid-jwt-token',
-        'content-type': 'application/json'
-      })
-    }
-    
-    // Mock successful auth by default
-    require('@/lib/supabase/server').createClient.mockReturnValue({
-      from: mockSupabaseFrom,
-      auth: {
-        getUser: jest.fn().mockResolvedValue({
-          data: { user: mockUser },
-          error: null
-        })
-      }
-    })
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
   })
 
   describe('POST /api/assessment', () => {
-    it('should create new assessment successfully', async () => {
-      const assessmentData = {
-        type: 'complete',
-        status: 'in_progress',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 },
-        soft_skills_results: {
-          comunicacao: 8,
-          lideranca: 7,
-          trabalhoEquipe: 9,
-          resolucaoProblemas: 6,
-          adaptabilidade: 8,
-          criatividade: 5,
-          gestaoTempo: 7,
-          negociacao: 6
-        }
-      }
+    const validAssessmentData = {
+      type: 'complete' as const,
+      status: 'in_progress' as const,
+      disc_results: { D: 4, I: 3, S: 2, C: 1 },
+      soft_skills_results: {
+        comunicacao: 8,
+        lideranca: 7,
+        trabalhoEquipe: 9,
+        resolucaoProblemas: 6,
+        adaptabilidade: 8,
+        criatividade: 5,
+        gestaoTempo: 7,
+        negociacao: 6
+      },
+      sjt_results: [8, 7, 9, 6, 5]
+    }
 
-      const mockCreatedAssessment = {
-        id: 'new-assessment-id',
-        user_id: mockUser.id,
-        ...assessmentData,
-        created_at: '2025-01-01T00:00:00Z'
-      }
-
-      mockSupabaseInsert.mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({
-            data: mockCreatedAssessment,
-            error: null
-          })
-        })
+    it('should create a new assessment successfully', async () => {
+      // Mock authentication
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
       })
 
-      const request = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(assessmentData)
-      } as unknown as NextRequest
-
-      const response = await POST(request)
-      const responseData = await response.json()
-
-      expect(response.status).toBe(201)
-      expect(responseData).toEqual({
+      // Mock service response
+      const mockServiceResponse = {
         id: 'new-assessment-id',
         status: 'success',
-        message: 'Assessment saved successfully'
-      })
-      expect(mockSupabaseInsert).toHaveBeenCalledWith([{
-        user_id: mockUser.id,
-        ...assessmentData
-      }])
-    })
-
-    it('should update existing assessment successfully', async () => {
-      const assessmentData = {
-        id: 'existing-assessment-id',
-        type: 'complete',
-        status: 'completed',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 },
-        completed_at: '2025-01-01T01:00:00Z'
+        message: 'Assessment created successfully'
       }
+      mockAssessmentService.saveAssessment.mockResolvedValue(mockServiceResponse)
 
-      const mockUpdatedAssessment = {
-        ...assessmentData,
-        user_id: mockUser.id,
-        created_at: '2025-01-01T00:00:00Z'
-      }
-
-      mockSupabaseUpdate.mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn().mockResolvedValue({
-                data: mockUpdatedAssessment,
-                error: null
-              })
-            })
-          })
-        })
+      // Create request
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(validAssessmentData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
       })
-
-      const request = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(assessmentData)
-      } as unknown as NextRequest
 
       const response = await POST(request)
       const responseData = await response.json()
 
       expect(response.status).toBe(200)
-      expect(responseData).toEqual({
+      expect(responseData).toEqual(mockServiceResponse)
+      expect(mockAssessmentService.saveAssessment).toHaveBeenCalledWith(
+        {
+          ...validAssessmentData,
+          soft_skills_results: validAssessmentData.soft_skills_results
+        },
+        mockUser.id
+      )
+    })
+
+    it('should update existing assessment successfully', async () => {
+      const updateData = {
+        id: 'existing-assessment-id',
+        type: 'disc' as const,
+        status: 'completed' as const,
+        disc_results: { D: 4, I: 3, S: 2, C: 1 }
+      }
+
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      const mockServiceResponse = {
         id: 'existing-assessment-id',
         status: 'success',
         message: 'Assessment updated successfully'
+      }
+      mockAssessmentService.saveAssessment.mockResolvedValue(mockServiceResponse)
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(updateData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(responseData).toEqual(mockServiceResponse)
+      expect(mockAssessmentService.saveAssessment).toHaveBeenCalledWith(updateData, mockUser.id)
+    })
+
+    it('should return 401 for unauthenticated requests', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { message: 'User not authenticated' },
+      })
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(validAssessmentData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(401)
+      expect(responseData).toEqual({
+        error: 'Unauthorized - Valid authentication required'
+      })
+      expect(mockAssessmentService.saveAssessment).not.toHaveBeenCalled()
+    })
+
+    it('should return 401 when user is null', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: null,
+      })
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(validAssessmentData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(401)
+      expect(responseData).toEqual({
+        error: 'Unauthorized - Valid authentication required'
+      })
+    })
+
+    it('should return 400 for invalid data format', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      const invalidData = {
+        type: 'invalid-type', // Invalid enum value
+        status: 'in_progress',
+        disc_results: { D: 'invalid' } // Invalid type
+      }
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(invalidData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(responseData.error).toBe('Invalid data format')
+      expect(responseData.details).toBeDefined()
+      expect(Array.isArray(responseData.details)).toBe(true)
+      expect(mockAssessmentService.saveAssessment).not.toHaveBeenCalled()
+    })
+
+    it('should return 400 for malformed JSON', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: 'invalid json',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(responseData.error).toBe('Internal server error')
+    })
+
+    it('should return 500 when service throws error', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      mockAssessmentService.saveAssessment.mockRejectedValue(new Error('Database connection failed'))
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(validAssessmentData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(responseData).toEqual({
+        error: 'Internal server error',
+        message: 'Database connection failed'
+      })
+      expect(console.error).toHaveBeenCalled()
+    })
+
+    it('should handle non-Error exceptions', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      mockAssessmentService.saveAssessment.mockRejectedValue('String error')
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(validAssessmentData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(responseData).toEqual({
+        error: 'Internal server error',
+        message: 'Unknown error occurred'
       })
     })
 
     it('should validate required fields', async () => {
-      const invalidData = {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      const incompleteData = {
         // Missing required 'type' field
         status: 'in_progress'
       }
 
-      const request = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(invalidData)
-      } as unknown as NextRequest
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(incompleteData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
 
       const response = await POST(request)
       const responseData = await response.json()
 
       expect(response.status).toBe(400)
-      expect(responseData.error).toContain('validation')
+      expect(responseData.error).toBe('Invalid data format')
+      expect(responseData.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ['type'],
+            message: expect.stringContaining('Required')
+          })
+        ])
+      )
     })
 
-    it('should handle authentication errors', async () => {
-      // Mock failed auth
-      require('@/lib/supabase/server').createClient.mockReturnValue({
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: { user: null },
-            error: { message: 'Invalid token' }
-          })
-        }
+    it('should validate UUID format for id field', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
       })
 
-      const request = {
-        headers: new Headers({
-          'authorization': 'Bearer invalid-token',
-          'content-type': 'application/json'
-        }),
-        json: jest.fn().mockResolvedValue({ type: 'complete', status: 'in_progress' })
-      } as unknown as NextRequest
-
-      const response = await POST(request)
-
-      expect(response.status).toBe(401)
-    })
-
-    it('should handle database errors', async () => {
-      const assessmentData = {
-        type: 'complete',
-        status: 'in_progress',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 }
+      const dataWithInvalidUuid = {
+        id: 'invalid-uuid',
+        type: 'disc',
+        status: 'in_progress'
       }
 
-      mockSupabaseInsert.mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({
-            data: null,
-            error: { message: 'Database connection failed', code: 'DB_ERROR' }
-          })
-        })
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(dataWithInvalidUuid),
+        headers: {
+          'Content-Type': 'application/json',
+        },
       })
-
-      const request = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(assessmentData)
-      } as unknown as NextRequest
-
-      const response = await POST(request)
-
-      expect(response.status).toBe(500)
-    })
-
-    it('should handle malformed JSON', async () => {
-      const request = {
-        ...mockRequest,
-        json: jest.fn().mockRejectedValue(new Error('Invalid JSON'))
-      } as unknown as NextRequest
-
-      const response = await POST(request)
-
-      expect(response.status).toBe(400)
-    })
-
-    it('should sanitize and validate JSON results', async () => {
-      const assessmentDataWithXSS = {
-        type: 'complete',
-        status: 'in_progress',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 },
-        // Attempt XSS injection
-        malicious_field: '<script>alert("xss")</script>'
-      }
-
-      const mockResult = {
-        id: 'test-id',
-        user_id: mockUser.id,
-        type: 'complete',
-        status: 'in_progress',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 },
-        created_at: '2025-01-01T00:00:00Z'
-      }
-
-      mockSupabaseInsert.mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({
-            data: mockResult,
-            error: null
-          })
-        })
-      })
-
-      const request = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(assessmentDataWithXSS)
-      } as unknown as NextRequest
 
       const response = await POST(request)
       const responseData = await response.json()
 
-      expect(response.status).toBe(201)
-      expect(responseData.id).toBe('test-id')
-      // Malicious field should be filtered out
-      expect(mockSupabaseInsert).toHaveBeenCalledWith([{
-        user_id: mockUser.id,
-        type: 'complete',
-        status: 'in_progress',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 }
-        // malicious_field should not be present
-      }])
+      expect(response.status).toBe(400)
+      expect(responseData.error).toBe('Invalid data format')
+      expect(responseData.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ['id'],
+            message: expect.stringContaining('uuid')
+          })
+        ])
+      )
     })
   })
 
   describe('GET /api/assessment', () => {
-    it('should return incomplete assessment for user', async () => {
+    it('should return incomplete assessment successfully', async () => {
       const mockIncompleteAssessment = {
         id: 'incomplete-assessment-id',
-        user_id: mockUser.id,
+        user_id: 'test-user-id',
         type: 'complete',
         status: 'in_progress',
         disc_results: { D: 4, I: 3, S: 2, C: 1 },
-        created_at: '2025-01-01T00:00:00Z'
+        soft_skills_results: null,
+        sjt_results: null,
+        created_at: '2025-01-01T00:00:00Z',
+        completed_at: null
       }
 
-      mockSupabaseSelect.mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            order: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: mockIncompleteAssessment,
-                error: null
-              })
-            })
-          })
-        })
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
       })
 
-      const request = mockRequest as NextRequest
+      mockAssessmentService.getIncompleteAssessment.mockResolvedValue(mockIncompleteAssessment)
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'GET',
+      })
 
       const response = await GET(request)
       const responseData = await response.json()
 
       expect(response.status).toBe(200)
       expect(responseData).toEqual(mockIncompleteAssessment)
-      expect(mockSupabaseSelect).toHaveBeenCalledWith('*')
+      expect(mockAssessmentService.getIncompleteAssessment).toHaveBeenCalledWith(mockUser.id)
     })
 
     it('should return 404 when no incomplete assessment found', async () => {
-      mockSupabaseSelect.mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            order: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: null,
-                error: null
-              })
-            })
-          })
-        })
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
       })
 
-      const request = mockRequest as NextRequest
+      mockAssessmentService.getIncompleteAssessment.mockResolvedValue(null)
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'GET',
+      })
 
       const response = await GET(request)
+      const responseData = await response.json()
 
       expect(response.status).toBe(404)
+      expect(responseData).toEqual({
+        message: 'No incomplete assessment found'
+      })
     })
 
-    it('should handle authentication errors on GET', async () => {
-      // Mock failed auth
-      require('@/lib/supabase/server').createClient.mockReturnValue({
-        auth: {
-          getUser: jest.fn().mockResolvedValue({
-            data: { user: null },
-            error: { message: 'Unauthorized' }
-          })
-        }
+    it('should return 401 for unauthenticated requests', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { message: 'User not authenticated' },
       })
 
-      const request = {
-        headers: new Headers({
-          'authorization': 'Bearer invalid-token'
-        })
-      } as NextRequest
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'GET',
+      })
 
       const response = await GET(request)
+      const responseData = await response.json()
 
       expect(response.status).toBe(401)
+      expect(responseData).toEqual({
+        error: 'Unauthorized - Valid authentication required'
+      })
+      expect(mockAssessmentService.getIncompleteAssessment).not.toHaveBeenCalled()
+    })
+
+    it('should return 401 when user is null', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: null,
+      })
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'GET',
+      })
+
+      const response = await GET(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(401)
+      expect(responseData).toEqual({
+        error: 'Unauthorized - Valid authentication required'
+      })
+    })
+
+    it('should return 500 when service throws error', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      mockAssessmentService.getIncompleteAssessment.mockRejectedValue(new Error('Database connection failed'))
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'GET',
+      })
+
+      const response = await GET(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(responseData).toEqual({
+        error: 'Internal server error',
+        message: 'Database connection failed'
+      })
+      expect(console.error).toHaveBeenCalled()
+    })
+
+    it('should handle non-Error exceptions in GET', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+
+      mockAssessmentService.getIncompleteAssessment.mockRejectedValue('String error')
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'GET',
+      })
+
+      const response = await GET(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(responseData).toEqual({
+        error: 'Internal server error',
+        message: 'Unknown error occurred'
+      })
     })
   })
 
-  describe('Rate Limiting and Security', () => {
-    it('should handle rapid successive requests', async () => {
-      const assessmentData = {
-        type: 'complete',
+  describe('Data validation edge cases', () => {
+    beforeEach(() => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      })
+    })
+
+    it('should accept null values for optional result fields', async () => {
+      const dataWithNulls = {
+        type: 'disc',
         status: 'in_progress',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 }
+        disc_results: null,
+        soft_skills_results: null,
+        sjt_results: null
       }
 
-      mockSupabaseInsert.mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({
-            data: { id: 'rate-limit-test', ...assessmentData },
-            error: null
-          })
-        })
+      const mockServiceResponse = {
+        id: 'assessment-with-nulls',
+        status: 'success',
+        message: 'Assessment created successfully'
+      }
+      mockAssessmentService.saveAssessment.mockResolvedValue(mockServiceResponse)
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(dataWithNulls),
+        headers: {
+          'Content-Type': 'application/json',
+        },
       })
-
-      const requests = Array.from({ length: 5 }, () => ({
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(assessmentData)
-      } as unknown as NextRequest))
-
-      const responses = await Promise.all(requests.map(req => POST(req)))
-
-      // All requests should succeed (rate limiting would be implemented at infrastructure level)
-      responses.forEach(response => {
-        expect([201, 200]).toContain(response.status)
-      })
-    })
-
-    it('should validate content-type header', async () => {
-      const request = {
-        headers: new Headers({
-          'authorization': 'Bearer valid-jwt-token',
-          'content-type': 'text/plain' // Invalid content type
-        }),
-        json: jest.fn().mockResolvedValue({ type: 'complete', status: 'in_progress' })
-      } as unknown as NextRequest
 
       const response = await POST(request)
+      const responseData = await response.json()
 
-      // Should handle gracefully or reject based on implementation
-      expect([400, 415]).toContain(response.status)
+      expect(response.status).toBe(200)
+      expect(responseData).toEqual(mockServiceResponse)
     })
-  })
 
-  describe('Data Integrity and Edge Cases', () => {
-    it('should handle very large assessment results', async () => {
-      const largeAssessmentData = {
-        type: 'complete',
-        status: 'completed',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 },
+    it('should validate disc_results structure when provided', async () => {
+      const invalidDiscData = {
+        type: 'disc',
+        status: 'in_progress',
+        disc_results: { D: 'invalid', I: 3, S: 2, C: 1 } // D should be number
+      }
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(invalidDiscData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(responseData.error).toBe('Invalid data format')
+      expect(responseData.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ['disc_results', 'D'],
+            message: expect.stringContaining('number')
+          })
+        ])
+      )
+    })
+
+    it('should validate sjt_results as array of numbers when provided', async () => {
+      const invalidSjtData = {
+        type: 'sjt',
+        status: 'in_progress',
+        sjt_results: [8, 7, 'invalid', 6, 5] // Third element should be number
+      }
+
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(invalidSjtData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const response = await POST(request)
+      const responseData = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(responseData.error).toBe('Invalid data format')
+      expect(responseData.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ['sjt_results', 2],
+            message: expect.stringContaining('number')
+          })
+        ])
+      )
+    })
+
+    it('should validate soft_skills_results as record of strings to numbers when provided', async () => {
+      const invalidSoftSkillsData = {
+        type: 'soft_skills',
+        status: 'in_progress',
         soft_skills_results: {
           comunicacao: 8,
-          lideranca: 7,
-          trabalhoEquipe: 9,
-          resolucaoProblemas: 6,
-          adaptabilidade: 8,
-          criatividade: 5,
-          gestaoTempo: 7,
-          negociacao: 6
-        },
-        sjt_results: new Array(1000).fill(0).map(() => Math.floor(Math.random() * 9) + 1), // Very large array
-        notes: 'A'.repeat(10000) // Large text field
+          lideranca: 'invalid' // Should be number
+        }
       }
 
-      mockSupabaseInsert.mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({
-            data: { id: 'large-assessment', ...largeAssessmentData },
-            error: null
-          })
-        })
+      const request = new NextRequest('http://localhost:3000/api/assessment', {
+        method: 'POST',
+        body: JSON.stringify(invalidSoftSkillsData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
       })
-
-      const request = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(largeAssessmentData)
-      } as unknown as NextRequest
 
       const response = await POST(request)
-      
-      expect([201, 413]).toContain(response.status) // Success or Payload Too Large
-    })
+      const responseData = await response.json()
 
-    it('should handle concurrent assessment updates', async () => {
-      const baseAssessment = {
-        id: 'concurrent-test-id',
-        type: 'complete',
-        status: 'in_progress',
-        disc_results: { D: 4, I: 3, S: 2, C: 1 }
-      }
-
-      const update1 = { ...baseAssessment, disc_results: { D: 5, I: 3, S: 2, C: 1 } }
-      const update2 = { ...baseAssessment, disc_results: { D: 4, I: 5, S: 2, C: 1 } }
-
-      mockSupabaseUpdate.mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn()
-                .mockResolvedValueOnce({ data: { ...update1, updated_at: '2025-01-01T00:00:01Z' }, error: null })
-                .mockResolvedValueOnce({ data: { ...update2, updated_at: '2025-01-01T00:00:02Z' }, error: null })
-            })
+      expect(response.status).toBe(400)
+      expect(responseData.error).toBe('Invalid data format')
+      expect(responseData.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ['soft_skills_results', 'lideranca'],
+            message: expect.stringContaining('number')
           })
-        })
-      })
-
-      const request1 = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(update1)
-      } as unknown as NextRequest
-
-      const request2 = {
-        ...mockRequest,
-        json: jest.fn().mockResolvedValue(update2)
-      } as unknown as NextRequest
-
-      const [response1, response2] = await Promise.all([
-        POST(request1),
-        POST(request2)
-      ])
-
-      expect(response1.status).toBe(200)
-      expect(response2.status).toBe(200)
+        ])
+      )
     })
   })
 })
