@@ -94,7 +94,7 @@ export function SJTScreen({ onNext, onResults }: SJTScreenProps) {
       const newAnswers = [...answers, selectedAnswer]
       setAnswers(newAnswers)
       
-      // Auto-save imediato após resposta
+      // Immediate auto-save after answer selection
       saveProgress(null, currentScenario + 1, { sjt_results: newAnswers })
       
       if (currentScenario < scenarios.length - 1) {
@@ -102,13 +102,13 @@ export function SJTScreen({ onNext, onResults }: SJTScreenProps) {
         setSelectedAnswer(null)
       } else {
         try {
-          // Salvar resultados finais
+          // Save final results
           await saveFinalResults({ sjt_results: newAnswers })
           onResults(newAnswers)
           onNext()
         } catch (error) {
-          console.error('Erro ao salvar resultados finais:', error)
-          // Continuar mesmo com erro de salvamento
+          console.error('Error saving final results:', error)
+          // Continue even with save error - UX continuity
           onResults(newAnswers)
           onNext()
         }

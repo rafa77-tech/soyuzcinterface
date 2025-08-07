@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
-import { Download, RotateCcw, TrendingUp, Users, Target, Brain } from 'lucide-react'
+import { Download, RotateCcw, TrendingUp, Users, Target, Brain, History } from 'lucide-react'
 
 interface CompletionScreenProps {
   userData: any
@@ -14,6 +14,7 @@ interface CompletionScreenProps {
   softSkillsResults: any
   sjtResults: number[]
   onRestart: () => void
+  onViewHistory?: () => void
 }
 
 export function CompletionScreen({ 
@@ -21,7 +22,8 @@ export function CompletionScreen({
   discResults, 
   softSkillsResults, 
   sjtResults, 
-  onRestart 
+  onRestart,
+  onViewHistory 
 }: CompletionScreenProps) {
   // Calculate primary DISC type
   const discEntries = Object.entries(discResults)
@@ -212,7 +214,7 @@ export function CompletionScreen({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex justify-center gap-4 mt-8">
+      <div className="flex justify-center gap-4 mt-8 flex-wrap">
         <Button
           onClick={onRestart}
           variant="outline"
@@ -221,6 +223,18 @@ export function CompletionScreen({
           <RotateCcw className="h-4 w-4" />
           Nova Avaliação
         </Button>
+        
+        {onViewHistory && (
+          <Button
+            onClick={onViewHistory}
+            variant="outline"
+            className="flex items-center gap-2 border-gray-600 text-gray-300 hover:bg-gray-800"
+          >
+            <History className="h-4 w-4" />
+            Ver Histórico
+          </Button>
+        )}
+        
         <Button
           className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 stellar-glow"
           onClick={() => window.print()}

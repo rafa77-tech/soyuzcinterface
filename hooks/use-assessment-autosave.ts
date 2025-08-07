@@ -30,8 +30,7 @@ export function useAssessmentAutoSave({
   debounceMs = 500,
   enableLocalBackup = true
 }: UseAssessmentAutoSaveOptions) {
-  const auth = useAuth()
-  const user = auth.user
+  const { user } = useAuth()
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>({
     isSaving: false,
     lastSaved: null,
@@ -96,8 +95,8 @@ export function useAssessmentAutoSave({
     }
   }, [localStorageKey, enableLocalBackup])
 
-  // Função principal de auto-save
-  const performAutoSave = useCallback(async (progress: AssessmentProgress) => {
+  // Auto-save function with retry logic and exponential backoff
+  const performAutoSave = useCallback(async (progress: AssessmentProgress, retryCount = 0) => {
     if (!user) {
       console.warn('User not authenticated, skipping auto-save')
       return
@@ -147,6 +146,16 @@ export function useAssessmentAutoSave({
 
     } catch (error) {
       console.error('Auto-save failed:', error)
+      
+      // Retry logic with exponential backoff (max 3 attempts)
+      if (retryCount < 2) {
+        const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s, 4s
+        setTimeout(() => {
+          performAutoSave(progress, retryCount + 1)
+        }, delay)
+        return
+      }
+      
       setAutoSaveState(prev => ({
         ...prev,
         isSaving: false,

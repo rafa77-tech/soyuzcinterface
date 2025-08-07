@@ -35,8 +35,7 @@ export function SoftSkillsScreen({ onNext, onResults }: SoftSkillsScreenProps) {
     loadIncompleteAssessment,
     isSaving, 
     error,
-    lastSaved,
-    saveStatus 
+    lastSaved 
   } = useAssessmentAutoSave({
     assessmentType: 'soft_skills',
     debounceMs: 500,
@@ -63,22 +62,33 @@ export function SoftSkillsScreen({ onNext, onResults }: SoftSkillsScreenProps) {
     const newSkillLevels = { ...skillLevels, [skillKey]: value[0] }
     setSkillLevels(newSkillLevels)
     
-    // Auto-save com debounce - convertendo para o formato correto
+    // Auto-save with debounce - proper format conversion to match SoftSkillsResults
     const softSkillsResults = {
       comunicacao: newSkillLevels.comunicacao || 5,
       lideranca: newSkillLevels.lideranca || 5,
-      ...newSkillLevels
+      trabalhoEquipe: newSkillLevels.trabalhoEquipe || 5,
+      resolucaoProblemas: newSkillLevels.resolucaoProblemas || 5,
+      adaptabilidade: newSkillLevels.adaptabilidade || 5,
+      criatividade: newSkillLevels.criatividade || 5,
+      gestaoTempo: newSkillLevels.gestaoTempo || 5,
+      negociacao: newSkillLevels.negociacao || 5,
     }
+    
     saveProgress(null, undefined, { soft_skills_results: softSkillsResults })
   }
 
   const handleSubmit = async () => {
     try {
-      // Salvar resultados finais imediatamente - convertendo para formato correto
+      // Save final results immediately - proper format conversion to match SoftSkillsResults
       const softSkillsResults = {
         comunicacao: skillLevels.comunicacao || 5,
         lideranca: skillLevels.lideranca || 5,
-        ...skillLevels
+        trabalhoEquipe: skillLevels.trabalhoEquipe || 5,
+        resolucaoProblemas: skillLevels.resolucaoProblemas || 5,
+        adaptabilidade: skillLevels.adaptabilidade || 5,
+        criatividade: skillLevels.criatividade || 5,
+        gestaoTempo: skillLevels.gestaoTempo || 5,
+        negociacao: skillLevels.negociacao || 5,
       }
       await saveFinalResults({ soft_skills_results: softSkillsResults })
       onResults(skillLevels)

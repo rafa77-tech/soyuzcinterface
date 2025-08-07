@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { User, Mail, Phone, Briefcase, Building, Lock } from 'lucide-react'
+import { User, Mail, Phone, Briefcase, Building, Lock, History } from 'lucide-react'
 import { useAuth } from '@/components/providers/auth-provider'
 import { z } from 'zod'
 
 interface AuthScreenProps {
   onNext: () => void
   onUserData: (data: any) => void
+  onViewHistory?: () => void
 }
 
 const medicalSpecialties = [
@@ -39,7 +40,7 @@ const profileSchema = z.object({
   password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
 })
 
-export function AuthScreen({ onNext, onUserData }: AuthScreenProps) {
+export function AuthScreen({ onNext, onUserData, onViewHistory }: AuthScreenProps) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [formData, setFormData] = useState({
     name: '',
@@ -53,6 +54,43 @@ export function AuthScreen({ onNext, onUserData }: AuthScreenProps) {
   const [isLoading, setIsLoading] = useState(false)
   
   const { signIn, signUp, user, profile } = useAuth()
+
+  // Se o usuário já está logado, mostrar opções diferentes
+  if (user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-md stellar-card">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl font-bold text-white">
+              Bem-vindo!
+            </CardTitle>
+            <p className="text-gray-400">
+              Você já está autenticado. O que deseja fazer?
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              onClick={onNext}
+              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 stellar-glow"
+            >
+              Iniciar Nova Avaliação
+            </Button>
+            
+            {onViewHistory && (
+              <Button
+                onClick={onViewHistory}
+                variant="outline"
+                className="w-full flex items-center gap-2"
+              >
+                <History className="h-4 w-4" />
+                Ver Histórico de Avaliações
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

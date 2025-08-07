@@ -9,12 +9,16 @@ import { SJTScreen } from '@/components/sjt-screen'
 import { CompletionScreen } from '@/components/completion-screen'
 import { AIChatWidget } from '@/components/ai-chat-widget'
 import { ResumeAssessmentModal } from '@/components/assessment/resume-assessment-modal'
+import { AssessmentHistory } from '@/components/assessment/assessment-history'
+import { ResultsViewer } from '@/components/assessment/results-viewer'
 import { useAuth } from '@/components/providers/auth-provider'
 import type { Assessment } from '@/lib/supabase/types'
 
 export default function Home() {
   const { user } = useAuth()
   const [currentScreen, setCurrentScreen] = useState(0)
+  const [showHistory, setShowHistory] = useState(false)
+  const [selectedAssessment, setSelectedAssessment] = useState<Assessment | null>(null)
   const [incompleteAssessment, setIncompleteAssessment] = useState<Assessment | null>(null)
   const [showResumeModal, setShowResumeModal] = useState(false)
   const [userData, setUserData] = useState({
@@ -104,12 +108,32 @@ export default function Home() {
     setShowResumeModal(false)
   }
 
+  const handleViewHistory = () => {
+    setShowHistory(true)
+  }
+
+  const handleViewResults = (assessment: Assessment) => {
+    setSelectedAssessment(assessment)
+    setShowHistory(false)
+  }
+
+  const handleBackToHistory = () => {
+    setSelectedAssessment(null)
+    setShowHistory(true)
+  }
+
+  const handleBackToMain = () => {
+    setShowHistory(false)
+    setSelectedAssessment(null)
+  }
+
   const screens = [
     <WelcomeScreen key="welcome" onStart={() => setCurrentScreen(1)} />,
     <AuthScreen 
       key="auth" 
       onNext={() => setCurrentScreen(2)} 
       onUserData={setUserData}
+      onViewHistory={handleViewHistory}
     />,
     <MiniDiscScreen 
       key="disc" 
@@ -133,12 +157,28 @@ export default function Home() {
       softSkillsResults={softSkillsResults}
       sjtResults={sjtResults}
       onRestart={() => setCurrentScreen(0)}
+      onViewHistory={handleViewHistory}
     />
   ]
 
   return (
     <main className="min-h-screen">
-      {screens[currentScreen]}
+      {showHistory && !selectedAssessment && (
+        <AssessmentHistory 
+          onBack={handleBackToMain}
+          onViewResults={handleViewResults}
+        />
+      )}
+      
+      {selectedAssessment && (
+        <ResultsViewer 
+          assessment={selectedAssessment}
+          onBack={handleBackToHistory}
+        />
+      )}
+      
+      {!showHistory && !selectedAssessment && screens[currentScreen]}
+      
       <AIChatWidget />
       <ResumeAssessmentModal
         isOpen={showResumeModal}
