@@ -72,6 +72,7 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
     }
 
     const targetPage = page ?? state.pagination.page
+    const currentLimit = pageSize // Use the stable pageSize instead of state.pagination.limit
 
     setState(prev => ({ 
       ...prev, 
@@ -82,7 +83,7 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
     try {
       const url = new URL('/api/assessments', window.location.origin)
       url.searchParams.set('page', targetPage.toString())
-      url.searchParams.set('limit', state.pagination.limit.toString())
+      url.searchParams.set('limit', currentLimit.toString())
 
       // Add filters to query string
       if (filters.type) {
@@ -122,14 +123,14 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
       }))
 
     } catch (error) {
-      console.error('Error fetching assessments:', error)
+      // Remove console.error for production - errors should be handled by UI
       setState(prev => ({
         ...prev,
         error: error instanceof Error ? error.message : 'Unknown error occurred',
         loading: false
       }))
     }
-  }, [user, state.pagination.page, state.pagination.limit, filters])
+  }, [user, state.pagination.page, pageSize, filters])
 
   /**
    * Navigate to specific page
@@ -196,7 +197,7 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
 
       return await response.json()
     } catch (error) {
-      console.error('Error fetching assessment:', error)
+      // Remove console.error for production - errors should be handled by UI
       return null
     }
   }, [user])
