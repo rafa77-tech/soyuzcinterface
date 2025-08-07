@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import { useAuth } from '@/components/providers/auth-provider'
 
 interface MiniDiscScreenProps {
   onNext: () => void
@@ -66,9 +67,55 @@ const questions = [
 ]
 
 export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
+  const { user } = useAuth()
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [answers, setAnswers] = useState<string[]>([])
   const [selectedAnswer, setSelectedAnswer] = useState('')
+  const [assessmentId, setAssessmentId] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<string>('')
+
+  // Auto-save function
+  const autoSave = async (progressAnswers: string[], step: number) => {
+    if (!user) return
+
+    setIsSaving(true)
+    setSaveStatus('Salvando...')
+
+    try {
+      const response = await fetch('/api/assessment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: assessmentId,
+          type: 'disc',
+          status: 'in_progress',
+          disc_results: null, // Ainda não temos resultados finais
+          soft_skills_results: null,
+          sjt_results: null
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (!assessmentId) {
+          setAssessmentId(result.id)
+        }
+        setSaveStatus('Salvo automaticamente')
+      } else {
+        setSaveStatus('Erro ao salvar')
+      }
+    } catch (error) {
+      console.error('Auto-save error:', error)
+      setSaveStatus('Erro ao salvar')
+    } finally {
+      setIsSaving(false)
+      // Clear status after 3 seconds
+      setTimeout(() => setSaveStatus(''), 3000)
+    }
+  }
 
   const handleNext = () => {
     if (selectedAnswer) {
@@ -78,15 +125,53 @@ export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
       if (currentQuestion < questions.length - 1) {
         setCurrentQuestion(currentQuestion + 1)
         setSelectedAnswer('')
+        // Auto-save progress
+        autoSave(newAnswers, currentQuestion + 1)
       } else {
         // Calculate results
         const results = { D: 0, I: 0, S: 0, C: 0 }
         newAnswers.forEach(answer => {
           results[answer as keyof typeof results]++
         })
+        
+        // Save final results
+        saveFinalResults(results)
         onResults(results)
         onNext()
       }
+    }
+  }
+
+  // Save final DISC results
+  const saveFinalResults = async (results: { D: number; I: number; S: number; C: number }) => {
+    if (!user) return
+
+    setIsSaving(true)
+    
+    try {
+      const response = await fetch('/api/assessment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: assessmentId,
+          type: 'disc',
+          status: 'in_progress',
+          disc_results: results,
+          soft_skills_results: null,
+          sjt_results: null
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setAssessmentId(result.id)
+      }
+    } catch (error) {
+      console.error('Error saving final results:', error)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -98,9 +183,19 @@ export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
         <CardHeader>
           <div className="flex justify-between items-center mb-4">
             <CardTitle className="text-2xl font-bold text-white">Análise DISC</CardTitle>
-            <span className="text-sm text-gray-400">
-              {currentQuestion + 1} de {questions.length}
-            </span>
+            <div className="flex items-center space-x-2">
+              {saveStatus && (
+                <span className={`text-xs ${
+                  saveStatus.includes('Erro') ? 'text-red-400' : 
+                  saveStatus.includes('Salvando') ? 'text-yellow-400' : 'text-green-400'
+                }`}>
+                  {saveStatus}
+                </span>
+              )}
+              <span className="text-sm text-gray-400">
+                {currentQuestion + 1} de {questions.length}
+              </span>
+            </div>
           </div>
           <Progress value={progress} className="w-full" />
         </CardHeader>

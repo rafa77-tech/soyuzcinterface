@@ -437,7 +437,7 @@ CREATE TABLE assessments (
 
 ---
 
-**Documento aprovado por:** _[Aguardando aprovação]_  
-**Data de aprovação:** _[Pendente]_  
+**Documento aprovado por:** Aprovado  
+**Data de aprovação:** 07/08/2025
 **Versão:** 1.0  
 **Última atualização:** 07/08/2025
