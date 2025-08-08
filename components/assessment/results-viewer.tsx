@@ -12,6 +12,23 @@ interface ResultsViewerProps {
 }
 
 export function ResultsViewer({ assessment, onBack }: ResultsViewerProps) {
+  if (!assessment) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-4xl stellar-card">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-white mb-4">Resultados da Avaliação</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-gray-300">Nenhuma avaliação selecionada.</div>
+            <Button onClick={onBack} variant="outline" size="sm" className="mt-4">
+              <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('pt-BR', {
       day: '2-digit',

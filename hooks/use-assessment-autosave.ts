@@ -39,6 +39,7 @@ export function useAssessmentAutoSave({
   })
 
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastSaveRef = useRef<AssessmentProgress | null>(null)
 
   // Local storage backup key
@@ -147,10 +148,13 @@ export function useAssessmentAutoSave({
     } catch (error) {
       console.error('Auto-save failed:', error)
       
+      // Salvar no localStorage imediatamente em caso de erro
+      saveToLocalStorage(progress)
+      
       // Retry logic with exponential backoff (max 3 attempts)
       if (retryCount < 2) {
-        const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s, 4s
-        const timeoutId = setTimeout(() => {
+        const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s
+        retryTimeoutRef.current = setTimeout(() => {
           performAutoSave(progress, retryCount + 1)
         }, delay)
         return
@@ -159,19 +163,19 @@ export function useAssessmentAutoSave({
       setAutoSaveState(prev => ({
         ...prev,
         isSaving: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? 'Network error' : 'Unknown error'
       }))
-
-      // Salvar backup local em caso de falha
-      saveToLocalStorage(progress)
     }
   }, [user, saveToLocalStorage])
 
   // Função debounced para auto-save
   const debouncedAutoSave = useCallback((progress: AssessmentProgress) => {
-    // Limpar timeout anterior
+    // Limpar timeouts anteriores
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
+    }
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current)
     }
 
     // Configurar novo timeout
@@ -184,6 +188,9 @@ export function useAssessmentAutoSave({
   const saveImmediately = useCallback((progress: AssessmentProgress) => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
+    }
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current)
     }
     return performAutoSave(progress)
   }, [performAutoSave])
@@ -261,6 +268,7 @@ export function useAssessmentAutoSave({
 
       const assessment = await response.json()
       
+      // Definir o assessmentId no estado para uso posterior
       setAutoSaveState(prev => ({
         ...prev,
         assessmentId: assessment.id
@@ -270,7 +278,14 @@ export function useAssessmentAutoSave({
     } catch (error) {
       console.error('Failed to load incomplete assessment:', error)
       // Em caso de erro, tentar carregar do localStorage
-      return loadFromLocalStorage()
+      const localData = loadFromLocalStorage()
+      if (localData && localData.assessmentId) {
+        setAutoSaveState(prev => ({
+          ...prev,
+          assessmentId: localData.assessmentId
+        }))
+      }
+      return localData
     }
   }, [loadFromLocalStorage])
 
@@ -279,6 +294,9 @@ export function useAssessmentAutoSave({
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
+      }
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current)
       }
     }
   }, [])

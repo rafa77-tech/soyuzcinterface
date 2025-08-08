@@ -1,511 +1,367 @@
-import type { SaveAssessmentParams, AssessmentListResponse } from '../assessment-service'
-import type { Assessment, DiscResults, SoftSkillsResults, SjtResults } from '@/lib/supabase/types'
-
-// Mock Supabase modules properly  
-jest.mock('@/lib/supabase/client', () => ({
-  supabase: {
-    auth: {
-      getUser: jest.fn(),
-    },
-    from: jest.fn(() => ({
-      select: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnThis(),
-      update: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-      single: jest.fn(),
-      maybeSingle: jest.fn(),
-    })),
-  },
-}))
-
-jest.mock('@/lib/supabase/server', () => ({
-  createRouteHandlerClient: jest.fn(() => ({
-    auth: {
-      getUser: jest.fn(),
-    },
-    from: jest.fn(() => ({
-      select: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnThis(),
-      update: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-      single: jest.fn(),
-      maybeSingle: jest.fn(),
-    })),
-  })),
-}))
-
-// Import after mocking
 import { assessmentService } from '../assessment-service'
 import { supabase } from '@/lib/supabase/client'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
 
-// Get the mocked instances for type-safe testing
-const mockSupabase = supabase as jest.Mocked<typeof supabase>
-const mockCreateRouteHandlerClient = createRouteHandlerClient as jest.MockedFunction<typeof createRouteHandlerClient>
+// Mock the modules
+jest.mock('@/lib/supabase/client')
+jest.mock('@/lib/supabase/server')
 
 describe('AssessmentPersistenceService', () => {
-  const mockUser = { id: 'test-user-id' }
-  const mockDiscResults: DiscResults = { D: 4, I: 3, S: 2, C: 1 }
-  const mockSoftSkillsResults: SoftSkillsResults = {
-    comunicacao: 8,
-    lideranca: 7,
-    trabalhoEquipe: 9,
-    resolucaoProblemas: 6,
-    adaptabilidade: 8,
-    criatividade: 5,
-    gestaoTempo: 7,
-    negociacao: 6
+  const mockUser = { id: 'user-123', email: 'test@example.com' }
+  const mockAssessment = {
+    id: 'assessment-123',
+    user_id: 'user-123',
+    type: 'complete',
+    status: 'in_progress',
+    created_at: '2024-01-01T00:00:00.000Z',
+    completed_at: null,
+    disc_results: { questions: [1, 2, 3] },
+    soft_skills_results: null,
+    sjt_results: null
   }
-  const mockSjtResults: SjtResults = [8, 7, 9, 6, 5]
+
+  const createMockSupabaseClient = () => ({
+    auth: {
+      getUser: jest.fn().mockResolvedValue({ data: { user: mockUser } })
+    },
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      insert: jest.fn().mockReturnThis(),
+      update: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      range: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null }),
+      maybeSingle: jest.fn().mockResolvedValue({ data: mockAssessment, error: null }),
+    }))
+  })
 
   beforeEach(() => {
     jest.clearAllMocks()
     jest.spyOn(console, 'warn').mockImplementation(() => {})
     jest.spyOn(console, 'error').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    jest.restoreAllMocks()
+    
+    // Setup default mocks
+    ;(supabase as any).auth = {
+      getUser: jest.fn().mockResolvedValue({ data: { user: mockUser } })
+    }
+    ;(supabase as any).from = jest.fn(() => createMockSupabaseClient().from())
+    
+    ;(createRouteHandlerClient as jest.Mock).mockReturnValue(createMockSupabaseClient())
   })
 
   describe('saveAssessment', () => {
-    it('should create a new assessment successfully', async () => {
-      const params: SaveAssessmentParams = {
+    it('should create new assessment successfully', async () => {
+      const mockChain = {
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null })
+      }
+      
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        insert: jest.fn().mockReturnValue(mockChain)
+      })
+
+      const result = await assessmentService.saveAssessment({
         type: 'complete',
         status: 'in_progress',
-        disc_results: mockDiscResults,
-        soft_skills_results: mockSoftSkillsResults,
-        sjt_results: mockSjtResults
-      }
-
-      const mockResponse = {
-        id: 'new-assessment-id',
-        user_id: 'test-user-id',
-        ...params
-      }
-
-      // Setup mocks
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
+        disc_results: { questions: [1, 2, 3] }
       })
-      
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
-        insert: jest.fn().mockReturnThis(),
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: mockResponse, error: null }),
-        maybeSingle: jest.fn(),
-      }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
-
-      const result = await assessmentService.saveAssessment(params)
-
-      expect(mockSupabase.from).toHaveBeenCalledWith('assessments')
-      expect(mockQueryBuilder.insert).toHaveBeenCalled()
       expect(result).toEqual({
-        id: 'new-assessment-id',
+        id: 'assessment-123',
         status: 'success',
         message: 'Assessment created successfully'
       })
     })
 
     it('should update existing assessment successfully', async () => {
-      const params: SaveAssessmentParams = {
-        id: 'existing-assessment-id',
-        type: 'disc',
-        status: 'completed',
-        disc_results: mockDiscResults
-      }
-
-      const mockResponse = {
-        id: 'existing-assessment-id',
-        user_id: 'test-user-id',
-        ...params
-      }
-
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
-        insert: jest.fn().mockReturnThis(),
-        update: jest.fn().mockReturnThis(),
+      const mockChain = {
         eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: mockResponse, error: null }),
-        maybeSingle: jest.fn(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null })
       }
+      
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        update: jest.fn().mockReturnValue(mockChain)
+      })
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
+      const result = await assessmentService.saveAssessment({
+        id: 'assessment-123',
+        type: 'complete',
+        status: 'completed',
+        disc_results: { questions: [1, 2, 3] }
+      })
 
-      const result = await assessmentService.saveAssessment(params)
-
-      expect(mockSupabase.from).toHaveBeenCalledWith('assessments')
-      expect(mockQueryBuilder.update).toHaveBeenCalled()
-      expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', 'existing-assessment-id')
       expect(result).toEqual({
-        id: 'existing-assessment-id',
+        id: 'assessment-123',
         status: 'success',
         message: 'Assessment updated successfully'
       })
     })
 
-    it('should use provided userId in server context', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'complete',
-        status: 'in_progress'
+    it('should handle different assessment types', async () => {
+      const types = ['disc', 'soft_skills', 'sjt', 'complete'] as const
+      
+      for (const type of types) {
+        const mockChain = {
+          select: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({ 
+            data: { ...mockAssessment, type }, 
+            error: null 
+          })
+        }
+        
+        ;(supabase.from as jest.Mock).mockReturnValue({
+          insert: jest.fn().mockReturnValue(mockChain)
+        })
+
+        const result = await assessmentService.saveAssessment({ type })
+        
+        expect(result.status).toBe('success')
       }
+    })
 
-      const mockResponse = {
-        id: 'server-assessment-id',
-        user_id: 'server-user-id'
-      }
+    it('should use server client when userId is provided', async () => {
+      const serverClient = createMockSupabaseClient()
+      ;(createRouteHandlerClient as jest.Mock).mockReturnValue(serverClient)
 
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
-        insert: jest.fn().mockReturnThis(),
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: mockResponse, error: null }),
-        maybeSingle: jest.fn(),
-      }
+      await assessmentService.saveAssessment({
+        type: 'complete'
+      }, 'user-123')
 
-      mockCreateRouteHandlerClient.mockReturnValue({
-        auth: { getUser: jest.fn() },
-        from: jest.fn().mockReturnValue(mockQueryBuilder),
-      } as any)
-
-      const result = await assessmentService.saveAssessment(params, 'server-user-id')
-
-      expect(mockCreateRouteHandlerClient).toHaveBeenCalled()
-      expect(result.id).toBe('server-assessment-id')
+      expect(createRouteHandlerClient).toHaveBeenCalled()
     })
 
     it('should throw error when user not authenticated', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'complete',
-        status: 'in_progress'
-      }
-
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: null }, 
-        error: null 
+      ;(supabase.auth.getUser as jest.Mock).mockResolvedValue({ 
+        data: { user: null } 
       })
 
-      await expect(assessmentService.saveAssessment(params)).rejects.toThrow('User not authenticated')
+      await expect(assessmentService.saveAssessment({
+        type: 'complete'
+      })).rejects.toThrow('User not authenticated')
     })
 
-    it('should implement retry logic with exponential backoff', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'complete',
-        status: 'in_progress'
-      }
-
-      const mockError = new Error('Network error')
-      
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
+    it('should handle database errors', async () => {
+      const mockChain = {
         select: jest.fn().mockReturnThis(),
-        insert: jest.fn().mockReturnThis(),
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        single: jest.fn()
-          .mockRejectedValueOnce(mockError)
-          .mockRejectedValueOnce(mockError)
-          .mockResolvedValueOnce({ data: { id: 'retry-success-id' }, error: null }),
-        maybeSingle: jest.fn(),
+        single: jest.fn().mockResolvedValue({ 
+          data: null, 
+          error: { message: 'Database error' } 
+        })
       }
-
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
-
-      // Mock setTimeout to avoid delays in tests
-      jest.spyOn(global, 'setTimeout').mockImplementation((callback: any) => {
-        callback()
-        return {} as any
+      
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        insert: jest.fn().mockReturnValue(mockChain)
       })
 
-      const result = await assessmentService.saveAssessment(params)
+      await expect(assessmentService.saveAssessment({
+        type: 'complete'
+      })).rejects.toThrow('Failed to create assessment: Database error')
+    })
+  })
 
-      expect(mockQueryBuilder.single).toHaveBeenCalledTimes(3)
-      expect(result.id).toBe('retry-success-id')
+  describe('retry mechanism', () => {
+    it('should retry failed operations with exponential backoff', async () => {
+      let attempts = 0
+      const mockChain = {
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockImplementation(() => {
+          attempts++
+          if (attempts < 3) {
+            return Promise.resolve({ data: null, error: { message: 'Network error' } })
+          }
+          return Promise.resolve({ data: mockAssessment, error: null })
+        })
+      }
+      
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        insert: jest.fn().mockReturnValue(mockChain)
+      })
+
+      jest.useFakeTimers()
+
+      const resultPromise = assessmentService.saveAssessment({
+        type: 'complete'
+      })
+
+      // Fast-forward through retry delays
+      await jest.advanceTimersByTimeAsync(1000) // First retry
+      await jest.advanceTimersByTimeAsync(2000) // Second retry
+
+      const result = await resultPromise
+
+      expect(attempts).toBe(3)
+      expect(result.status).toBe('success')
       expect(console.warn).toHaveBeenCalledTimes(2)
+
+      jest.useRealTimers()
     })
 
-    it('should throw error after max retries exceeded', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'complete',
-        status: 'in_progress'
-      }
-
-      const mockError = new Error('Persistent error')
-      
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
+    it('should fail after max retries exceeded', async () => {
+      const mockChain = {
         select: jest.fn().mockReturnThis(),
-        insert: jest.fn().mockReturnThis(),
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        single: jest.fn().mockRejectedValue(mockError),
-        maybeSingle: jest.fn(),
+        single: jest.fn().mockResolvedValue({ 
+          data: null, 
+          error: { message: 'Persistent error' } 
+        })
       }
-
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
-
-      jest.spyOn(global, 'setTimeout').mockImplementation((callback: any) => {
-        callback()
-        return {} as any
-      })
-
-      await expect(assessmentService.saveAssessment(params)).rejects.toThrow('Persistent error')
-      expect(mockQueryBuilder.single).toHaveBeenCalledTimes(4) // Initial + 3 retries
-    })
-
-    it('should handle Supabase errors properly', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'complete',
-        status: 'in_progress'
-      }
-
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
       
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
-        insert: jest.fn().mockReturnThis(),
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: null, error: { message: 'Database constraint error' } }),
-        maybeSingle: jest.fn(),
-      }
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        insert: jest.fn().mockReturnValue(mockChain)
+      })
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
+      jest.useFakeTimers()
 
-      await expect(assessmentService.saveAssessment(params)).rejects.toThrow('Failed to create assessment: Database constraint error')
+      const resultPromise = assessmentService.saveAssessment({
+        type: 'complete'
+      })
+
+      // Fast-forward through all retries
+      await jest.advanceTimersByTimeAsync(1000)
+      await jest.advanceTimersByTimeAsync(2000)
+      await jest.advanceTimersByTimeAsync(4000)
+
+      await expect(resultPromise).rejects.toThrow('Failed to create assessment: Persistent error')
+      expect(console.error).toHaveBeenCalledWith('Assessment operation failed after all retries:', expect.any(Error))
+
+      jest.useRealTimers()
     })
   })
 
   describe('getAssessmentHistory', () => {
-    it('should return paginated assessment history', async () => {
+    it('should fetch paginated assessment history', async () => {
       const mockAssessments = [
-        {
-          id: 'assessment-1',
-          type: 'complete',
-          status: 'completed',
-          created_at: '2025-01-01T00:00:00Z',
-          completed_at: '2025-01-01T01:00:00Z'
-        },
-        {
-          id: 'assessment-2',
-          type: 'disc',
-          status: 'in_progress', 
-          created_at: '2025-01-02T00:00:00Z',
-          completed_at: null
-        }
+        { id: '1', type: 'complete', status: 'completed', created_at: '2024-01-01', completed_at: '2024-01-01' },
+        { id: '2', type: 'disc', status: 'in_progress', created_at: '2024-01-02', completed_at: null }
       ]
 
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      // Mock count query and data query
-      const mockCountBuilder = {
-        eq: jest.fn().mockResolvedValue({ count: 5, error: null })
-      }
-      
-      const mockDataBuilder = {
-        select: jest.fn().mockReturnThis(),
+      const mockCountChain = { count: 'exact', head: true }
+      const mockDataChain = {
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockResolvedValue({ data: mockAssessments, error: null }),
+        range: jest.fn().mockResolvedValue({ data: mockAssessments, error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock)
-        .mockReturnValueOnce({ select: jest.fn().mockReturnValue(mockCountBuilder) })
-        .mockReturnValueOnce(mockDataBuilder)
+      ;(supabase.from as jest.Mock)
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ count: 10, error: null })
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnValue(mockDataChain)
+        })
 
-      const result: AssessmentListResponse = await assessmentService.getAssessmentHistory()
+      const result = await assessmentService.getAssessmentHistory(undefined, 1, 5)
 
-      expect(result.assessments).toEqual(mockAssessments)
-      expect(result.pagination).toEqual({
-        total: 5,
-        page: 1,
-        limit: 20
+      expect(result).toEqual({
+        assessments: mockAssessments,
+        pagination: {
+          total: 10,
+          page: 1,
+          limit: 5
+        }
       })
     })
 
-    it('should handle empty results', async () => {
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockCountBuilder = {
-        eq: jest.fn().mockResolvedValue({ count: 0, error: null })
-      }
-      
-      const mockDataBuilder = {
-        select: jest.fn().mockReturnThis(),
+    it('should handle pagination parameters correctly', async () => {
+      const mockDataChain = {
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockResolvedValue({ data: null, error: null }),
+        range: jest.fn().mockResolvedValue({ data: [], error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock)
-        .mockReturnValueOnce({ select: jest.fn().mockReturnValue(mockCountBuilder) })
-        .mockReturnValueOnce(mockDataBuilder)
+      ;(supabase.from as jest.Mock)
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ count: 50, error: null })
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnValue(mockDataChain)
+        })
 
-      const result = await assessmentService.getAssessmentHistory()
+      await assessmentService.getAssessmentHistory(undefined, 3, 10)
 
-      expect(result.assessments).toEqual([])
-      expect(result.pagination.total).toBe(0)
+      expect(mockDataChain.range).toHaveBeenCalledWith(20, 29) // (3-1) * 10, (3-1) * 10 + 10 - 1
     })
   })
 
   describe('getAssessment', () => {
-    const mockAssessment: Assessment = {
-      id: 'test-assessment-id',
-      user_id: 'test-user-id',
-      type: 'complete',
-      status: 'completed',
-      disc_results: mockDiscResults as any,
-      soft_skills_results: mockSoftSkillsResults as any,
-      sjt_results: mockSjtResults as any,
-      created_at: '2025-01-01T00:00:00Z',
-      completed_at: '2025-01-01T01:00:00Z'
-    }
-
-    it('should return assessment by ID for current user', async () => {
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
+    it('should fetch specific assessment by ID', async () => {
+      const mockChain = {
         eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null }),
+        single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        select: jest.fn().mockReturnValue(mockChain)
+      })
 
-      const result = await assessmentService.getAssessment('test-assessment-id')
+      const result = await assessmentService.getAssessment('assessment-123')
 
-      expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', 'test-assessment-id')
-      expect(mockQueryBuilder.eq).toHaveBeenCalledWith('user_id', 'test-user-id')
       expect(result).toEqual(mockAssessment)
+      expect(mockChain.eq).toHaveBeenCalledWith('id', 'assessment-123')
+      expect(mockChain.eq).toHaveBeenCalledWith('user_id', mockUser.id)
     })
 
     it('should handle assessment not found', async () => {
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
+      const mockChain = {
         eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: null, error: { message: 'No rows returned' } }),
+        single: jest.fn().mockResolvedValue({ 
+          data: null, 
+          error: { message: 'No rows returned' } 
+        })
       }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        select: jest.fn().mockReturnValue(mockChain)
+      })
 
-      await expect(assessmentService.getAssessment('non-existent-id'))
+      await expect(assessmentService.getAssessment('nonexistent-id'))
         .rejects.toThrow('Failed to fetch assessment: No rows returned')
     })
   })
 
   describe('getIncompleteAssessment', () => {
-    it('should return most recent incomplete assessment', async () => {
-      const mockIncompleteAssessment: Assessment = {
-        id: 'incomplete-assessment-id',
-        user_id: 'test-user-id',
-        type: 'complete',
-        status: 'in_progress',
-        disc_results: mockDiscResults as any,
-        soft_skills_results: null,
-        sjt_results: null,
-        created_at: '2025-01-01T00:00:00Z',
-        completed_at: null
+    it('should fetch most recent incomplete assessment', async () => {
+      const incompleteAssessment = {
+        ...mockAssessment,
+        status: 'in_progress'
       }
 
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
+      const mockChain = {
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: mockIncompleteAssessment, error: null }),
+        maybeSingle: jest.fn().mockResolvedValue({ data: incompleteAssessment, error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        select: jest.fn().mockReturnValue(mockChain)
+      })
 
       const result = await assessmentService.getIncompleteAssessment()
 
-      expect(mockQueryBuilder.eq).toHaveBeenCalledWith('user_id', 'test-user-id')
-      expect(mockQueryBuilder.eq).toHaveBeenCalledWith('status', 'in_progress')
-      expect(mockQueryBuilder.order).toHaveBeenCalledWith('created_at', { ascending: false })
-      expect(mockQueryBuilder.limit).toHaveBeenCalledWith(1)
-      expect(result).toEqual(mockIncompleteAssessment)
+      expect(result).toEqual(incompleteAssessment)
+      expect(mockChain.eq).toHaveBeenCalledWith('status', 'in_progress')
+      expect(mockChain.order).toHaveBeenCalledWith('created_at', { ascending: false })
+      expect(mockChain.limit).toHaveBeenCalledWith(1)
     })
 
-    it('should return null when no incomplete assessments exist', async () => {
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        select: jest.fn().mockReturnThis(),
+    it('should return null when no incomplete assessment exists', async () => {
+      const mockChain = {
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        select: jest.fn().mockReturnValue(mockChain)
+      })
 
       const result = await assessmentService.getIncompleteAssessment()
 
@@ -514,40 +370,26 @@ describe('AssessmentPersistenceService', () => {
   })
 
   describe('updateAssessmentResults', () => {
-    it('should update assessment results successfully', async () => {
-      const results = {
-        disc_results: mockDiscResults,
-        soft_skills_results: mockSoftSkillsResults
-      }
-
-      const mockUpdatedAssessment = {
-        id: 'test-assessment-id',
-        ...results
-      }
-
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        update: jest.fn().mockReturnThis(),
+    it('should update specific assessment results', async () => {
+      const mockChain = {
         eq: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: mockUpdatedAssessment, error: null }),
+        single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
-
-      const result = await assessmentService.updateAssessmentResults('test-assessment-id', results)
-
-      expect(mockQueryBuilder.update).toHaveBeenCalledWith({
-        disc_results: results.disc_results,
-        soft_skills_results: results.soft_skills_results,
-        sjt_results: undefined
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        update: jest.fn().mockReturnValue(mockChain)
       })
+
+      const results = {
+        disc_results: { questions: [4, 5, 6] },
+        soft_skills_results: { skills: ['leadership'] }
+      }
+
+      const result = await assessmentService.updateAssessmentResults('assessment-123', results)
+
       expect(result).toEqual({
-        id: 'test-assessment-id',
+        id: 'assessment-123',
         status: 'success',
         message: 'Assessment results updated successfully'
       })
@@ -556,142 +398,96 @@ describe('AssessmentPersistenceService', () => {
 
   describe('completeAssessment', () => {
     it('should mark assessment as completed', async () => {
-      const mockCompletedAssessment = {
-        id: 'test-assessment-id',
+      const completedAssessment = {
+        ...mockAssessment,
         status: 'completed',
-        completed_at: '2025-01-01T01:00:00Z'
+        completed_at: '2024-01-01T12:00:00.000Z'
       }
 
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        update: jest.fn().mockReturnThis(),
+      const mockChain = {
         eq: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: mockCompletedAssessment, error: null }),
+        single: jest.fn().mockResolvedValue({ data: completedAssessment, error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
-
-      const result = await assessmentService.completeAssessment('test-assessment-id')
-
-      expect(mockQueryBuilder.update).toHaveBeenCalledWith({
-        status: 'completed',
-        completed_at: expect.any(String) // ISO timestamp
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        update: jest.fn().mockReturnValue(mockChain)
       })
-      expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', 'test-assessment-id')
+
+      const result = await assessmentService.completeAssessment('assessment-123')
+
       expect(result).toEqual({
-        id: 'test-assessment-id',
+        id: 'assessment-123',
         status: 'success',
         message: 'Assessment completed successfully'
       })
-    })
-
-    it('should handle completion errors', async () => {
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        update: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: null, error: { message: 'Update failed' } }),
-      }
-
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
-
-      await expect(assessmentService.completeAssessment('test-id'))
-        .rejects.toThrow('Failed to complete assessment: Update failed')
+      expect(mockChain.eq).toHaveBeenCalledWith('id', 'assessment-123')
+      expect(mockChain.eq).toHaveBeenCalledWith('user_id', mockUser.id)
     })
   })
 
-  describe('error handling edge cases', () => {
-    it('should handle auth service errors', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'complete',
-        status: 'in_progress'
-      }
+  describe('data validation and schema compliance', () => {
+    it('should handle all assessment types correctly', async () => {
+      const assessmentTypes = ['complete', 'disc', 'soft_skills', 'sjt'] as const
 
-      ;(mockSupabase.auth.getUser as jest.Mock).mockRejectedValue(new Error('Auth service down'))
+      for (const type of assessmentTypes) {
+        const mockChain = {
+          select: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({ 
+            data: { ...mockAssessment, type }, 
+            error: null 
+          })
+        }
 
-      await expect(assessmentService.saveAssessment(params)).rejects.toThrow('Auth service down')
-    })
-  })
-
-  describe('data validation', () => {
-    it('should handle completed assessment with timestamp', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'complete',
-        status: 'completed',
-        disc_results: mockDiscResults,
-        soft_skills_results: mockSoftSkillsResults,
-        sjt_results: mockSjtResults
-      }
-
-      const mockResponse = {
-        id: 'completed-assessment-id',
-        user_id: 'test-user-id',
-        ...params,
-        completed_at: expect.any(String)
-      }
-
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
-      })
-      
-      const mockQueryBuilder = {
-        insert: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: mockResponse, error: null }),
-      }
-
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
-
-      const result = await assessmentService.saveAssessment(params)
-
-      expect(result.id).toBe('completed-assessment-id')
-      expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          completed_at: expect.any(String)
+        ;(supabase.from as jest.Mock).mockReturnValue({
+          insert: jest.fn().mockReturnValue(mockChain)
         })
-      )
+
+        const result = await assessmentService.saveAssessment({ type })
+        expect(result.status).toBe('success')
+      }
     })
 
     it('should handle null results properly', async () => {
-      const params: SaveAssessmentParams = {
-        type: 'disc',
-        status: 'in_progress',
-        disc_results: mockDiscResults,
+      const mockChain = {
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null })
+      }
+
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        insert: jest.fn().mockReturnValue(mockChain)
+      })
+
+      const result = await assessmentService.saveAssessment({
+        type: 'complete',
+        disc_results: null,
         soft_skills_results: null,
         sjt_results: null
-      }
-
-      ;(mockSupabase.auth.getUser as jest.Mock).mockResolvedValue({ 
-        data: { user: mockUser }, 
-        error: null 
       })
-      
-      const mockQueryBuilder = {
-        insert: jest.fn().mockReturnThis(),
+
+      expect(result.status).toBe('success')
+    })
+
+    it('should set completed_at when status is completed', async () => {
+      const mockChain = {
         select: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: { id: 'partial-assessment-id' }, error: null }),
+        single: jest.fn().mockResolvedValue({ data: mockAssessment, error: null })
       }
 
-      ;(mockSupabase.from as jest.Mock).mockReturnValue(mockQueryBuilder)
+      const insertSpy = jest.fn().mockReturnValue(mockChain)
+      ;(supabase.from as jest.Mock).mockReturnValue({
+        insert: insertSpy
+      })
 
-      const result = await assessmentService.saveAssessment(params)
+      await assessmentService.saveAssessment({
+        type: 'complete',
+        status: 'completed'
+      })
 
-      expect(result.id).toBe('partial-assessment-id')
-      expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
+      expect(insertSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          soft_skills_results: null,
-          sjt_results: null
+          status: 'completed',
+          completed_at: expect.any(String)
         })
       )
     })

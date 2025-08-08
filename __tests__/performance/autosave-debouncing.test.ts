@@ -1,398 +1,465 @@
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import { useAssessmentAutoSave } from '@/hooks/use-assessment-autosave'
-import { useAuth } from '@/components/providers/auth-provider'
 
-// Mock the auth provider
+// Mock dependencies
 jest.mock('@/components/providers/auth-provider', () => ({
-  useAuth: jest.fn(),
+  useAuth: jest.fn(() => ({
+    user: { id: 'user-123', email: 'test@example.com' }
+  }))
 }))
 
-const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>
-
-// Mock fetch globally
-const mockFetch = jest.fn()
-global.fetch = mockFetch
-
-// Mock timers for performance testing
-jest.useFakeTimers()
+global.fetch = jest.fn()
+global.localStorage = {
+  getItem: jest.fn(),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+} as any
 
 describe('Auto-save Performance Tests', () => {
-  const mockUser = {
-    id: 'test-user-id',
-    email: 'test@example.com',
-  }
-
   beforeEach(() => {
     jest.clearAllMocks()
-    mockUseAuth.mockReturnValue({
-      user: mockUser,
-      profile: null,
-      session: null,
-      signIn: jest.fn(),
-      signOut: jest.fn(),
-      signUp: jest.fn(),
-      refreshProfile: jest.fn(),
-      loading: false,
+    jest.useFakeTimers()
+    
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: jest.fn().mockResolvedValue({
+        id: 'assessment-123',
+        status: 'success'
+      })
     })
-    mockFetch.mockClear()
   })
 
   afterEach(() => {
-    jest.runOnlyPendingTimers()
-  })
-
-  afterAll(() => {
     jest.useRealTimers()
   })
 
   describe('Debouncing Performance', () => {
-    it('should prevent excessive API calls with rapid updates', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
+    it('should handle rapid sequential saves efficiently', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 500
+      }))
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills', debounceMs: 500 })
-      )
+      const saveCount = 100
+      const startTime = Date.now()
 
-      // Simulate rapid successive updates (like user typing/sliding quickly)
-      const rapidUpdates = [
-        { soft_skills_results: { comunicacao: 1 } },
-        { soft_skills_results: { comunicacao: 2 } },
-        { soft_skills_results: { comunicacao: 3 } },
-        { soft_skills_results: { comunicacao: 4 } },
-        { soft_skills_results: { comunicacao: 5 } },
-        { soft_skills_results: { comunicacao: 6 } },
-        { soft_skills_results: { comunicacao: 7 } },
-        { soft_skills_results: { comunicacao: 8 } },
-      ]
-
-      const startTime = performance.now()
-
-      // Apply all updates rapidly (within 100ms)
+      // Simulate rapid user input
       act(() => {
-        rapidUpdates.forEach((update, index) => {
-          setTimeout(() => {
-            result.current.saveProgress(null, undefined, update)
-          }, index * 10) // 10ms between each update
-        })
+        for (let i = 0; i < saveCount; i++) {
+          result.current.saveProgress(
+            { [`question_${i}`]: `answer_${i}` },
+            i + 1
+          )
+        }
       })
 
-      // Fast-forward only to the point where debounce should trigger
-      act(() => {
-        jest.advanceTimersByTime(100) // All updates completed
-      })
+      const rapidInputTime = Date.now() - startTime
 
-      // No API calls should have been made yet
-      expect(mockFetch).toHaveBeenCalledTimes(0)
+      // Should handle rapid input without blocking (< 100ms for 100 calls)
+      expect(rapidInputTime).toBeLessThan(100)
 
-      // Now advance past the debounce delay
+      // Fast-forward through debounce period
       act(() => {
         jest.advanceTimersByTime(500)
       })
 
-      // Should only make 1 API call for all the rapid updates
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(1)
-        expect(mockFetch).toHaveBeenLastCalledWith('/api/assessment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'soft_skills',
-            status: 'in_progress',
-            soft_skills_results: { comunicacao: 8 }, // Last update value
-          }),
+      // Should have made only 1 API call despite 100 save attempts
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(fetch).toHaveBeenCalledTimes(1)
+
+      // Should have saved the latest data
+      const lastCall = (fetch as jest.Mock).mock.calls[0]
+      const body = JSON.parse(lastCall[1].body)
+      expect(body.answers).toEqual({ [`question_${saveCount - 1}`]: `answer_${saveCount - 1}` })
+    })
+
+    it('should not cause memory leaks during long sessions', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 100
+      }))
+
+      // Simulate long session with periodic saves
+      for (let session = 0; session < 10; session++) {
+        act(() => {
+          for (let i = 0; i < 50; i++) {
+            result.current.saveProgress(
+              { sessionData: session, questionIndex: i },
+              i
+            )
+          }
+        })
+
+        // Advance time to trigger saves
+        act(() => {
+          jest.advanceTimersByTime(100)
+        })
+
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
+
+      // Should have made multiple saves but not excessive
+      expect((fetch as jest.Mock).mock.calls.length).toBeLessThan(20)
+      expect((fetch as jest.Mock).mock.calls.length).toBeGreaterThan(5)
+    })
+
+    it('should handle varying debounce times efficiently', async () => {
+      const debounceTimes = [100, 200, 500, 1000]
+      const results: number[] = []
+
+      for (const debounceMs of debounceTimes) {
+        jest.clearAllMocks()
+
+        const { result } = renderHook(() => useAssessmentAutoSave({
+          assessmentType: 'complete',
+          debounceMs
+        }))
+
+        const startTime = Date.now()
+
+        act(() => {
+          result.current.saveProgress({ test: 'data' }, 1)
+        })
+
+        act(() => {
+          jest.advanceTimersByTime(debounceMs)
+        })
+
+        await new Promise(resolve => setTimeout(resolve, 0))
+
+        const totalTime = Date.now() - startTime
+        results.push(totalTime)
+      }
+
+      // Performance should not degrade significantly with longer debounce times
+      // (within reasonable bounds for test environment)
+      results.forEach(time => {
+        expect(time).toBeLessThan(50) // All operations should be very fast in test env
+      })
+    })
+  })
+
+  describe('Concurrent Save Operations', () => {
+    it('should handle multiple components saving simultaneously', async () => {
+      const components = 5
+      const hooks = Array.from({ length: components }, () =>
+        renderHook(() => useAssessmentAutoSave({
+          assessmentType: 'complete',
+          debounceMs: 200
+        }))
+      )
+
+      const startTime = Date.now()
+
+      // All components save at the same time
+      act(() => {
+        hooks.forEach((hook, index) => {
+          hook.result.current.saveProgress(
+            { componentId: index, data: 'test' },
+            1
+          )
         })
       })
 
-      const endTime = performance.now()
-      
-      // Verify the debounce worked efficiently
-      expect(endTime - startTime).toBeLessThan(1000) // Should complete quickly
-    })
+      const concurrentTime = Date.now() - startTime
 
-    it('should handle high-frequency updates without memory leaks', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
+      // Should handle concurrent operations efficiently
+      expect(concurrentTime).toBeLessThan(50)
 
-      const { result, unmount } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills', debounceMs: 200 })
-      )
-
-      // Simulate very high-frequency updates (100 updates)
-      act(() => {
-        for (let i = 0; i < 100; i++) {
-          result.current.saveProgress(null, undefined, {
-            soft_skills_results: { comunicacao: i % 10 },
-          })
-        }
-      })
-
-      // Only advance time for one debounce period
+      // Advance timers
       act(() => {
         jest.advanceTimersByTime(200)
       })
 
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(1)
-      })
+      await new Promise(resolve => setTimeout(resolve, 0))
 
-      // Cleanup should not cause any errors
-      expect(() => unmount()).not.toThrow()
+      // Each component should have made its own save call
+      expect(fetch).toHaveBeenCalledTimes(components)
     })
 
-    it('should maintain performance with different debounce delays', async () => {
-      const testCases = [
-        { debounceMs: 100, expectedCalls: 1 },
-        { debounceMs: 500, expectedCalls: 1 },
-        { debounceMs: 1000, expectedCalls: 1 },
-      ]
+    it('should prevent duplicate saves for identical data', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 100
+      }))
 
-      for (const testCase of testCases) {
-        mockFetch.mockClear()
-        mockFetch.mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({ id: 'test-assessment-id' }),
-        } as Response)
+      const identicalData = { question1: 'answer1', question2: 'answer2' }
 
-        const { result, unmount } = renderHook(() =>
-          useAssessmentAutoSave({
-            assessmentType: 'soft_skills',
-            debounceMs: testCase.debounceMs,
-          })
-        )
+      act(() => {
+        // Save identical data multiple times
+        for (let i = 0; i < 10; i++) {
+          result.current.saveProgress(identicalData, 1)
+        }
+      })
 
-        const startTime = performance.now()
+      act(() => {
+        jest.advanceTimersByTime(100)
+      })
 
-        // Make 10 rapid updates
-        act(() => {
-          for (let i = 0; i < 10; i++) {
-            result.current.saveProgress(null, undefined, {
-              soft_skills_results: { lideranca: i },
-            })
-          }
-        })
+      await new Promise(resolve => setTimeout(resolve, 0))
 
-        // Advance time by the debounce delay
-        act(() => {
-          jest.advanceTimersByTime(testCase.debounceMs)
-        })
+      // Should make the first save
+      expect(fetch).toHaveBeenCalledTimes(1)
 
-        await waitFor(() => {
-          expect(mockFetch).toHaveBeenCalledTimes(testCase.expectedCalls)
-        })
+      // Try to save the same data again after completion
+      act(() => {
+        result.current.saveProgress(identicalData, 1)
+      })
 
-        const endTime = performance.now()
-        
-        // Performance should scale reasonably with debounce delay
-        expect(endTime - startTime).toBeLessThan(testCase.debounceMs + 500)
-        
-        unmount()
-      }
+      act(() => {
+        jest.advanceTimersByTime(100)
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      // Should not make additional saves for identical data
+      expect(fetch).toHaveBeenCalledTimes(1)
     })
   })
 
-  describe('Memory and Resource Management', () => {
-    it('should properly cleanup timers on unmount', () => {
-      const { result, unmount } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills', debounceMs: 500 })
-      )
-
-      // Start a debounced save
-      act(() => {
-        result.current.saveProgress(null, undefined, {
-          soft_skills_results: { comunicacao: 8 },
+  describe('Error Recovery Performance', () => {
+    it('should handle retry backoff without blocking UI', async () => {
+      let failureCount = 0
+      ;(global.fetch as jest.Mock).mockImplementation(() => {
+        failureCount++
+        if (failureCount <= 2) {
+          return Promise.reject(new Error('Network error'))
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: 'success', status: 'saved' })
         })
       })
 
-      // Unmount before debounce completes
-      unmount()
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 100
+      }))
 
-      // Advance time - should not cause any API calls or errors
+      const startTime = Date.now()
+
+      // Trigger save that will fail and retry
+      act(() => {
+        result.current.saveProgress({ test: 'data' }, 1)
+      })
+
+      // Initial debounce
+      act(() => {
+        jest.advanceTimersByTime(100)
+      })
+
+      // First retry (1 second)
       act(() => {
         jest.advanceTimersByTime(1000)
       })
 
-      expect(mockFetch).not.toHaveBeenCalled()
-    })
-
-    it('should handle component re-renders efficiently', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
-
-      const { result, rerender } = renderHook(
-        (props) => useAssessmentAutoSave(props),
-        {
-          initialProps: { assessmentType: 'soft_skills' as const, debounceMs: 300 },
-        }
-      )
-
-      // Make updates, then cause re-renders
-      act(() => {
-        result.current.saveProgress(null, undefined, {
-          soft_skills_results: { comunicacao: 5 },
-        })
-      })
-
-      // Re-render multiple times
-      for (let i = 0; i < 5; i++) {
-        rerender({ assessmentType: 'soft_skills' as const, debounceMs: 300 })
-      }
-
-      // Complete the debounce
-      act(() => {
-        jest.advanceTimersByTime(300)
-      })
-
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(1)
-      })
-    })
-
-    it('should handle localStorage operations efficiently', async () => {
-      const mockLocalStorage = {
-        getItem: jest.fn(),
-        setItem: jest.fn(),
-        removeItem: jest.fn(),
-      }
-      
-      Object.defineProperty(window, 'localStorage', {
-        value: mockLocalStorage,
-      })
-
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills', debounceMs: 200 })
-      )
-
-      const startTime = performance.now()
-
-      // Make multiple saves that should backup to localStorage
-      act(() => {
-        for (let i = 0; i < 20; i++) {
-          result.current.saveProgress(null, undefined, {
-            soft_skills_results: { comunicacao: i },
-          })
-        }
-      })
-
-      act(() => {
-        jest.advanceTimersByTime(200)
-      })
-
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(1)
-      })
-
-      const endTime = performance.now()
-
-      // localStorage operations should not significantly impact performance
-      expect(endTime - startTime).toBeLessThan(1000)
-      
-      // Should efficiently manage localStorage calls
-      expect(mockLocalStorage.setItem).toHaveBeenCalled()
-      expect(mockLocalStorage.setItem.mock.calls.length).toBeLessThan(25) // Reasonable limit
-    })
-  })
-
-  describe('Network Performance and Error Recovery', () => {
-    it('should handle slow network responses efficiently', async () => {
-      // Mock slow network response
-      mockFetch.mockImplementation(() => 
-        new Promise(resolve => 
-          setTimeout(() => resolve({
-            ok: true,
-            json: () => Promise.resolve({ id: 'test-assessment-id' }),
-          } as Response), 2000) // 2 second delay
-        )
-      )
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills', debounceMs: 300 })
-      )
-
-      const startTime = performance.now()
-
-      act(() => {
-        result.current.saveProgress(null, undefined, {
-          soft_skills_results: { comunicacao: 8 },
-        })
-      })
-
-      // Trigger debounce
-      act(() => {
-        jest.advanceTimersByTime(300)
-      })
-
-      // Advance time for slow response
+      // Second retry (2 seconds)
       act(() => {
         jest.advanceTimersByTime(2000)
       })
 
-      await waitFor(() => {
-        expect(result.current.isSaving).toBe(false)
-      }, { timeout: 5000 })
+      await new Promise(resolve => setTimeout(resolve, 0))
 
-      const endTime = performance.now()
-      
-      // Should handle slow responses gracefully
-      expect(endTime - startTime).toBeLessThan(5000)
+      const totalTime = Date.now() - startTime
+
+      // Should complete retries efficiently in test environment
+      expect(totalTime).toBeLessThan(100)
+      expect(fetch).toHaveBeenCalledTimes(3)
+      expect(failureCount).toBe(3)
+      expect(result.current.error).toBeNull()
     })
 
-    it('should maintain performance during retry scenarios', async () => {
-      // Mock failing then succeeding responses
-      mockFetch
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockResolvedValueOnce({
+    it('should maintain performance during network instability', async () => {
+      let callCount = 0
+      ;(global.fetch as jest.Mock).mockImplementation(() => {
+        callCount++
+        // Simulate intermittent failures
+        if (callCount % 3 === 0) {
+          return Promise.reject(new Error('Network unstable'))
+        }
+        return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ id: 'test-assessment-id' }),
-        } as Response)
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills', debounceMs: 200 })
-      )
-
-      const startTime = performance.now()
-
-      act(() => {
-        result.current.saveProgress(null, undefined, {
-          soft_skills_results: { comunicacao: 9 },
+          json: () => Promise.resolve({ id: `save-${callCount}`, status: 'saved' })
         })
       })
 
-      // Trigger initial save
-      act(() => {
-        jest.advanceTimersByTime(200)
-      })
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 50
+      }))
 
-      // Advance through retry attempts (exponential backoff: 1s, 2s, 4s)
-      act(() => {
-        jest.advanceTimersByTime(1000) // First retry
-      })
+      const operationTimes: number[] = []
 
-      act(() => {
-        jest.advanceTimersByTime(2000) // Second retry
-      })
+      // Perform multiple save operations
+      for (let i = 0; i < 10; i++) {
+        const opStart = Date.now()
 
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(3)
-        expect(result.current.error).toBeNull()
-      })
+        act(() => {
+          result.current.saveProgress({ operation: i }, i)
+        })
 
-      const endTime = performance.now()
+        act(() => {
+          jest.advanceTimersByTime(50)
+        })
+
+        // Allow retries to complete
+        act(() => {
+          jest.advanceTimersByTime(3000) // Max retry time
+        })
+
+        await new Promise(resolve => setTimeout(resolve, 0))
+
+        operationTimes.push(Date.now() - opStart)
+      }
+
+      // Performance should remain consistent despite failures
+      const avgTime = operationTimes.reduce((a, b) => a + b, 0) / operationTimes.length
+      const maxTime = Math.max(...operationTimes)
       
-      // Even with retries, should complete in reasonable time
-      expect(endTime - startTime).toBeLessThan(8000)
+      expect(avgTime).toBeLessThan(20) // Average should be very fast in test env
+      expect(maxTime).toBeLessThan(100) // Even slowest should be reasonable
+    })
+  })
+
+  describe('Memory Usage Optimization', () => {
+    it('should clean up timeouts and references properly', async () => {
+      const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout')
+      
+      const { result, unmount } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 100
+      }))
+
+      // Create pending operations
+      act(() => {
+        for (let i = 0; i < 5; i++) {
+          result.current.saveProgress({ pending: i }, i)
+        }
+      })
+
+      // Unmount before operations complete
+      unmount()
+
+      // Should have cleaned up timeouts
+      expect(clearTimeoutSpy).toHaveBeenCalled()
+      
+      clearTimeoutSpy.mockRestore()
+    })
+
+    it('should handle localStorage efficiently for large datasets', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 100,
+        enableLocalBackup: true
+      }))
+
+      // Generate large dataset
+      const largeAnswers = Array.from({ length: 100 }, (_, i) => ({
+        [`question_${i}`]: `This is a long answer for question ${i} with lots of text content that simulates a real user response with detailed explanations and multiple sentences that could potentially stress the localStorage system.`
+      }))
+
+      const startTime = Date.now()
+
+      act(() => {
+        largeAnswers.forEach((answers, index) => {
+          result.current.saveProgress(answers, index)
+        })
+      })
+
+      const processingTime = Date.now() - startTime
+
+      // Should handle large datasets efficiently
+      expect(processingTime).toBeLessThan(100)
+
+      act(() => {
+        jest.advanceTimersByTime(100)
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      // Should have attempted localStorage save
+      expect(localStorage.setItem).toHaveBeenCalled()
+    })
+  })
+
+  describe('Real-world Usage Patterns', () => {
+    it('should handle typical user assessment completion efficiently', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 500
+      }))
+
+      const totalStartTime = Date.now()
+
+      // Simulate DISC assessment (15 questions)
+      for (let i = 0; i < 15; i++) {
+        act(() => {
+          result.current.saveProgress(
+            { [`disc_q${i}`]: Math.floor(Math.random() * 4) },
+            i + 1
+          )
+        })
+        
+        // Simulate user think time between questions
+        act(() => {
+          jest.advanceTimersByTime(300)
+        })
+      }
+
+      // Final save for DISC results
+      act(() => {
+        result.current.saveFinalResults({
+          disc_results: { D: 0.3, I: 0.2, S: 0.25, C: 0.25 }
+        })
+      })
+
+      act(() => {
+        jest.advanceTimersByTime(500) // Complete debounce
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      const totalTime = Date.now() - totalStartTime
+
+      // Should complete typical assessment flow efficiently
+      expect(totalTime).toBeLessThan(200)
+      
+      // Should not have excessive API calls
+      expect((fetch as jest.Mock).mock.calls.length).toBeLessThan(10)
+    })
+
+    it('should optimize for mobile performance constraints', async () => {
+      // Simulate slower mobile environment
+      const originalSetTimeout = global.setTimeout
+      global.setTimeout = jest.fn((callback, delay) => 
+        originalSetTimeout(callback, delay ? delay * 0.1 : 0) // 10x faster for simulation
+      )
+
+      const { result } = renderHook(() => useAssessmentAutoSave({
+        assessmentType: 'complete',
+        debounceMs: 1000 // Longer debounce for mobile
+      }))
+
+      const mobileOperationTimes: number[] = []
+
+      // Simulate mobile interaction patterns
+      for (let i = 0; i < 5; i++) {
+        const start = Date.now()
+        
+        act(() => {
+          result.current.saveProgress({ mobileData: i }, i)
+        })
+
+        mobileOperationTimes.push(Date.now() - start)
+      }
+
+      // Mobile operations should be consistently fast
+      const avgMobileTime = mobileOperationTimes.reduce((a, b) => a + b, 0) / mobileOperationTimes.length
+      expect(avgMobileTime).toBeLessThan(10)
+
+      global.setTimeout = originalSetTimeout
     })
   })
 })

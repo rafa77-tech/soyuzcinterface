@@ -136,7 +136,19 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
    * Navigate to specific page
    */
   const goToPage = useCallback((page: number) => {
-    if (page < 1 || page > state.pagination.totalPages) return
+    if (page < 1 || (state.pagination.totalPages > 0 && page > state.pagination.totalPages)) return
+    
+    // Update page in state immediately to prevent race conditions
+    setState(prev => ({
+      ...prev,
+      pagination: {
+        ...prev.pagination,
+        page: page
+      },
+      loading: true,
+      error: null
+    }))
+    
     fetchAssessments(page)
   }, [fetchAssessments, state.pagination.totalPages])
 
@@ -162,10 +174,67 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
    * Update filters and refresh data
    */
   const updateFilters = useCallback((newFilters: Partial<AssessmentFilters>) => {
-    setFilters(prev => ({ ...prev, ...newFilters }))
-    // Reset to first page when filters change
-    fetchAssessments(1)
-  }, [fetchAssessments])
+    setFilters(prev => {
+      const updatedFilters = { ...prev, ...newFilters }
+      // Trigger fetch with new filters immediately by using a ref or callback
+      setTimeout(() => {
+        const url = new URL('/api/assessments', window.location.origin)
+        url.searchParams.set('page', '1')
+        url.searchParams.set('limit', pageSize.toString())
+
+        // Add filters to query string
+        if (updatedFilters.type) {
+          url.searchParams.set('type', updatedFilters.type)
+        }
+        if (updatedFilters.status) {
+          url.searchParams.set('status', updatedFilters.status)
+        }
+        if (updatedFilters.dateFrom) {
+          url.searchParams.set('dateFrom', updatedFilters.dateFrom.toISOString())
+        }
+        if (updatedFilters.dateTo) {
+          url.searchParams.set('dateTo', updatedFilters.dateTo.toISOString())
+        }
+        if (updatedFilters.search) {
+          url.searchParams.set('search', updatedFilters.search)
+        }
+
+        if (user) {
+          setState(prev => ({ ...prev, loading: true, error: null }))
+          
+          fetch(url.toString())
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: Failed to fetch assessments`)
+              }
+              return response.json()
+            })
+            .then((data: AssessmentListResponse) => {
+              setState(prev => ({
+                ...prev,
+                assessments: data.assessments,
+                pagination: {
+                  ...data.pagination,
+                  page: 1,
+                  totalPages: Math.ceil(data.pagination.total / data.pagination.limit)
+                },
+                loading: false,
+                lastUpdated: new Date()
+              }))
+            })
+            .catch(error => {
+              setState(prev => ({
+                ...prev,
+                error: error instanceof Error ? error.message : 'Unknown error occurred',
+                loading: false
+              }))
+            })
+        }
+      }, 0)
+      
+      return updatedFilters
+    })
+  }, [user, pageSize])
 
   /**
    * Clear all filters
@@ -223,12 +292,20 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
       if (activeFilters.dateFrom || activeFilters.dateTo) {
         const assessmentDate = new Date(assessment.created_at)
         
-        if (activeFilters.dateFrom && assessmentDate < activeFilters.dateFrom) {
-          return false
+        if (activeFilters.dateFrom) {
+          const fromDate = new Date(activeFilters.dateFrom)
+          fromDate.setHours(0, 0, 0, 0) // Start of day
+          if (assessmentDate < fromDate) {
+            return false
+          }
         }
         
-        if (activeFilters.dateTo && assessmentDate > activeFilters.dateTo) {
-          return false
+        if (activeFilters.dateTo) {
+          const toDate = new Date(activeFilters.dateTo)
+          toDate.setHours(23, 59, 59, 999) // End of day
+          if (assessmentDate > toDate) {
+            return false
+          }
         }
       }
 
@@ -306,6 +383,6 @@ export function useAssessmentHistory(options: UseAssessmentHistoryOptions = {}) 
     // Computed values
     isEmpty: state.assessments.length === 0,
     isFirstPage: state.pagination.page === 1,
-    isLastPage: state.pagination.page === state.pagination.totalPages
+    isLastPage: state.pagination.totalPages === 0 || state.pagination.page === state.pagination.totalPages
   }
 } 

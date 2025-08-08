@@ -1,43 +1,83 @@
 import '@testing-library/jest-dom'
 
+// Mock Next.js Environment
+global.Request = class MockRequest {
+  constructor(url, options = {}) {
+    this.url = url
+    this.method = options.method || 'GET'
+    this.headers = new Headers(options.headers || {})
+    this.body = options.body
+  }
+  async json() {
+    return JSON.parse(this.body || '{}')
+  }
+}
+
+global.Response = class MockResponse {
+  constructor(body, options = {}) {
+    this.body = body
+    this.status = options.status || 200
+    this.headers = new Headers(options.headers || {})
+    this.ok = this.status >= 200 && this.status < 300
+  }
+  async json() {
+    return JSON.parse(this.body)
+  }
+  async text() {
+    return this.body
+  }
+}
+
+global.Headers = class MockHeaders {
+  constructor(init) {
+    this.headers = new Map()
+    if (init) {
+      Object.entries(init).forEach(([key, value]) => {
+        this.headers.set(key.toLowerCase(), value)
+      })
+    }
+  }
+  get(name) {
+    return this.headers.get(name.toLowerCase()) || null
+  }
+  set(name, value) {
+    this.headers.set(name.toLowerCase(), value)
+  }
+}
+
 // Mock Next.js router
 jest.mock('next/navigation', () => ({
   useRouter() {
     return {
       push: jest.fn(),
-      refresh: jest.fn(),
+      replace: jest.fn(),
       prefetch: jest.fn(),
+      back: jest.fn(),
+      forward: jest.fn(),
+      refresh: jest.fn(),
     }
   },
+  useSearchParams() {
+    return {
+      get: jest.fn(),
+    }
+  },
+  usePathname() {
+    return '/'
+  }
 }))
 
-// Mock window.matchMedia for next-themes (only in jsdom environment)
-if (typeof window !== 'undefined') {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: jest.fn().mockImplementation(query => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: jest.fn(), // deprecated
-      removeListener: jest.fn(), // deprecated
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-      dispatchEvent: jest.fn(),
-    })),
-  })
-}
-
-// Mock ResizeObserver
-global.ResizeObserver = jest.fn().mockImplementation(() => ({
-  observe: jest.fn(),
-  unobserve: jest.fn(),
-  disconnect: jest.fn(),
+// Mock NextResponse
+jest.mock('next/server', () => ({
+  NextRequest: class MockNextRequest extends global.Request {},
+  NextResponse: {
+    json: (body, init) => {
+      const response = new global.Response(JSON.stringify(body), init)
+      response.json = async () => body
+      return response
+    }
+  }
 }))
-
-// Mock environment variables
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://mock-project.supabase.co'
-process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'mock-anon-key'
 
 // Mock Supabase clients
 jest.mock('@/lib/supabase/client', () => ({
@@ -45,8 +85,9 @@ jest.mock('@/lib/supabase/client', () => ({
     auth: {
       getUser: jest.fn(),
       signInWithPassword: jest.fn(),
+      signUp: jest.fn(),
       signOut: jest.fn(),
-      onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })),
+      onAuthStateChange: jest.fn(),
     },
     from: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),
@@ -59,8 +100,8 @@ jest.mock('@/lib/supabase/client', () => ({
       limit: jest.fn().mockReturnThis(),
       single: jest.fn(),
       maybeSingle: jest.fn(),
-    })),
-  },
+    }))
+  }
 }))
 
 jest.mock('@/lib/supabase/server', () => ({
@@ -79,48 +120,18 @@ jest.mock('@/lib/supabase/server', () => ({
       limit: jest.fn().mockReturnThis(),
       single: jest.fn(),
       maybeSingle: jest.fn(),
-    })),
-  })),
+    }))
+  }))
 }))
 
-// Mock fetch globally for API tests
-global.fetch = jest.fn()
-
-// Mock Web APIs for Next.js API routes
-const { TextEncoder, TextDecoder } = require('util')
-global.TextEncoder = TextEncoder
-global.TextDecoder = TextDecoder
-
-// Mock crypto for Web APIs
-const crypto = require('crypto')
-global.crypto = {
-  randomUUID: () => crypto.randomUUID(),
-  getRandomValues: (arr) => crypto.getRandomValues(arr),
+// Global test setup
+global.console = {
+  ...console,
+  warn: jest.fn(),
+  error: jest.fn(),
 }
 
-// Enhanced fetch mocking for API tests
+// Mock timers configuration
 beforeEach(() => {
-  // Reset fetch mock before each test
-  if (global.fetch && global.fetch.mockClear) {
-    global.fetch.mockClear()
-  }
+  jest.clearAllMocks()
 })
-
-// Mock NextRequest for API route testing
-jest.mock('next/server', () => ({
-  NextRequest: jest.fn().mockImplementation((url, options = {}) => ({
-    url,
-    method: options.method || 'GET',
-    headers: new Map(Object.entries(options.headers || {})),
-    json: jest.fn(),
-    text: jest.fn(),
-    formData: jest.fn(),
-  })),
-  NextResponse: {
-    json: jest.fn((data, options = {}) => ({
-      status: options.status || 200,
-      json: () => Promise.resolve(data),
-    })),
-    redirect: jest.fn(),
-  },
-}))

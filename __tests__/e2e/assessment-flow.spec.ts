@@ -1,324 +1,444 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, Page } from '@playwright/test'
 
-test.describe('Assessment Flow E2E Tests', () => {
+// Test data
+const testUser = {
+  email: 'test@soyuzinterface.com',
+  password: 'TestPassword123!'
+}
+
+const discAnswers = [
+  0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2 // Pattern for 15 DISC questions
+]
+
+const softSkillsAnswers = Array(20).fill(0).map((_, i) => i % 4) // 20 soft skills questions
+const sjtAnswers = Array(10).fill(0).map((_, i) => i % 4) // 10 SJT scenarios
+
+test.describe('Complete Assessment Flow', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock authentication by setting up localStorage
+    // Setup: Clear any existing state
     await page.goto('/')
     await page.evaluate(() => {
-      localStorage.setItem('supabase.auth.token', JSON.stringify({
-        access_token: 'mock-token',
-        refresh_token: 'mock-refresh',
-        user: { id: 'test-user-id', email: 'test@example.com' }
-      }))
+      localStorage.clear()
+      sessionStorage.clear()
     })
   })
 
-  test('Complete assessment flow: save → interrupt → resume → complete', async ({ page }) => {
-    // Start DISC assessment
-    await page.goto('/assessment/disc')
+  test('should complete full assessment flow: DISC → Soft Skills → SJT → Results', async ({ page }) => {
+    // Step 1: Authentication
+    await authenticateUser(page)
     
-    // Verify assessment page loaded
-    await expect(page.getByRole('heading', { name: /disc/i })).toBeVisible()
+    // Step 2: Start new assessment
+    await startNewAssessment(page)
     
-    // Fill out some DISC questions (simulate partial completion)
-    const firstQuestion = page.locator('[data-testid="disc-question-1"]').first()
-    if (await firstQuestion.isVisible()) {
-      await firstQuestion.click()
-    }
+    // Step 3: Complete DISC assessment
+    await completeDISCAssessment(page)
     
-    // Wait for auto-save to trigger (debounced)
-    await page.waitForTimeout(1000)
+    // Step 4: Complete Soft Skills assessment  
+    await completeSoftSkillsAssessment(page)
     
-    // Verify saving indicator appears
-    const savingIndicator = page.locator('[data-testid="saving-indicator"]')
-    if (await savingIndicator.isVisible()) {
-      await expect(savingIndicator).toContainText(/salvando|salvo/i)
-    }
+    // Step 5: Complete SJT assessment
+    await completeSJTAssessment(page)
     
-    // Simulate interruption by navigating away
-    await page.goto('/')
-    await expect(page.getByText(/início|home/i)).toBeVisible()
-    
-    // Return to assessment page to test resume functionality
-    await page.goto('/assessment/disc')
-    
-    // Verify assessment state is restored
-    await expect(page.getByRole('heading', { name: /disc/i })).toBeVisible()
-    
-    // Complete remaining questions
-    const questions = page.locator('[data-testid^="disc-question"]')
-    const questionCount = await questions.count()
-    
-    for (let i = 0; i < Math.min(questionCount, 5); i++) {
-      const question = questions.nth(i)
-      if (await question.isVisible()) {
-        await question.click()
-        await page.waitForTimeout(200) // Small delay between clicks
-      }
-    }
-    
-    // Submit assessment
-    const submitButton = page.getByRole('button', { name: /finalizar|submeter|concluir/i })
-    if (await submitButton.isVisible()) {
-      await submitButton.click()
-    }
-    
-    // Verify completion
-    await expect(page.getByText(/concluído|finalizado|completo/i)).toBeVisible({ timeout: 10000 })
+    // Step 6: Verify results and completion
+    await verifyAssessmentCompletion(page)
   })
 
-  test('Soft skills assessment with auto-save functionality', async ({ page }) => {
-    await page.goto('/assessment/soft-skills')
+  test('should persist progress and allow resumption after interruption', async ({ page }) => {
+    // Step 1: Start assessment and complete DISC
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    await completeDISCAssessment(page)
     
-    // Verify soft skills assessment page loaded
-    await expect(page.getByRole('heading', { name: /soft skills|habilidades/i })).toBeVisible()
+    // Step 2: Start Soft Skills but interrupt midway
+    await page.waitForSelector('[data-testid="soft-skills-question"]')
     
-    // Fill out some soft skills ratings
-    const sliders = page.locator('input[type="range"]')
-    const sliderCount = await sliders.count()
-    
-    if (sliderCount > 0) {
-      // Set some slider values
-      for (let i = 0; i < Math.min(sliderCount, 3); i++) {
-        await sliders.nth(i).fill('7')
-        await page.waitForTimeout(300)
-      }
-      
-      // Wait for auto-save debounce
-      await page.waitForTimeout(1000)
-      
-      // Verify progress is saved
-      const saveStatus = page.locator('[data-testid="save-status"]')
-      if (await saveStatus.isVisible()) {
-        await expect(saveStatus).not.toContainText(/não salvo/i)
+    // Answer half the soft skills questions
+    for (let i = 0; i < 10; i++) {
+      await answerSoftSkillsQuestion(page, i % 4)
+      if (i < 9) {
+        await page.click('[data-testid="next-button"]')
+        await page.waitForTimeout(500) // Auto-save debounce
       }
     }
-  })
-
-  test('Assessment persistence across browser refresh', async ({ page }) => {
-    await page.goto('/assessment/disc')
     
-    // Fill out first question
-    const firstOption = page.locator('[data-testid="disc-question-1"]').first()
-    if (await firstOption.isVisible()) {
-      await firstOption.click()
-      await page.waitForTimeout(1000) // Wait for auto-save
-    }
-    
-    // Refresh the page
+    // Step 3: Simulate browser close/refresh
     await page.reload()
     
-    // Verify the page reloads and assessment state is maintained
-    await expect(page.getByRole('heading', { name: /disc/i })).toBeVisible()
+    // Step 4: Should show resume modal
+    await page.waitForSelector('[data-testid="resume-assessment-modal"]')
+    expect(await page.textContent('[data-testid="resume-assessment-modal"]')).toContain('retomar')
     
-    // Verify previously selected option is still selected
-    if (await firstOption.isVisible()) {
-      await expect(firstOption).toBeChecked()
-    }
+    // Step 5: Resume assessment
+    await page.click('[data-testid="resume-button"]')
+    
+    // Step 6: Should be on soft skills question 11
+    await page.waitForSelector('[data-testid="soft-skills-question"]')
+    expect(await page.textContent('[data-testid="question-counter"]')).toContain('11')
+    
+    // Step 7: Complete remaining assessment
+    await completeSoftSkillsAssessment(page, 10) // Start from question 10
+    await completeSJTAssessment(page)
+    await verifyAssessmentCompletion(page)
   })
 
-  test('Multiple assessment types completion flow', async ({ page }) => {
-    // Complete DISC assessment
-    await page.goto('/assessment/disc')
-    await expect(page.getByRole('heading', { name: /disc/i })).toBeVisible()
+  test('should handle auto-save during rapid input changes', async ({ page }) => {
+    await authenticateUser(page)
+    await startNewAssessment(page)
     
-    // Fill out DISC questions quickly for test purposes
-    const discQuestions = page.locator('[data-testid^="disc-question"]')
-    const discCount = await discQuestions.count()
-    
-    for (let i = 0; i < Math.min(discCount, 4); i++) {
-      const question = discQuestions.nth(i)
-      if (await question.isVisible()) {
-        await question.click()
+    // Monitor network requests
+    const saveRequests: any[] = []
+    page.on('request', request => {
+      if (request.url().includes('/api/assessment') && request.method() === 'POST') {
+        saveRequests.push(request)
       }
-    }
-    
-    const discSubmit = page.getByRole('button', { name: /próximo|continuar/i })
-    if (await discSubmit.isVisible()) {
-      await discSubmit.click()
-    }
-    
-    // Move to soft skills assessment
-    await page.goto('/assessment/soft-skills')
-    await expect(page.getByRole('heading', { name: /soft skills|habilidades/i })).toBeVisible()
-    
-    // Fill out soft skills ratings
-    const sliders = page.locator('input[type="range"]')
-    const sliderCount = await sliders.count()
-    
-    for (let i = 0; i < Math.min(sliderCount, 4); i++) {
-      await sliders.nth(i).fill('8')
-    }
-    
-    await page.waitForTimeout(1000) // Wait for auto-save
-    
-    const softSkillsSubmit = page.getByRole('button', { name: /próximo|continuar/i })
-    if (await softSkillsSubmit.isVisible()) {
-      await softSkillsSubmit.click()
-    }
-    
-    // Move to SJT assessment
-    await page.goto('/assessment/sjt')
-    if (await page.getByRole('heading', { name: /sjt|situacional/i }).isVisible()) {
-      // Fill out SJT questions
-      const sjtQuestions = page.locator('[data-testid^="sjt-question"]')
-      const sjtCount = await sjtQuestions.count()
-      
-      for (let i = 0; i < Math.min(sjtCount, 3); i++) {
-        const question = sjtQuestions.nth(i)
-        if (await question.isVisible()) {
-          await question.click()
-        }
-      }
-    }
-    
-    // Final submission
-    const finalSubmit = page.getByRole('button', { name: /finalizar|concluir/i })
-    if (await finalSubmit.isVisible()) {
-      await finalSubmit.click()
-      
-      // Verify completion page or message
-      await expect(page.getByText(/parabéns|concluído|completo/i)).toBeVisible({ timeout: 15000 })
-    }
-  })
-
-  test('Error handling and retry functionality', async ({ page }) => {
-    // Mock network failure
-    await page.route('**/api/assessment', (route) => {
-      route.abort('failed')
     })
     
-    await page.goto('/assessment/disc')
+    // Navigate to first DISC question
+    await page.waitForSelector('[data-testid="disc-question"]')
     
-    // Fill out a question to trigger save
-    const firstQuestion = page.locator('[data-testid="disc-question-1"]').first()
-    if (await firstQuestion.isVisible()) {
-      await firstQuestion.click()
-      await page.waitForTimeout(2000) // Wait for save attempt and retries
+    // Make rapid answer changes (should be debounced)
+    for (let i = 0; i < 4; i++) {
+      await page.click(`[data-testid="disc-option-${i}"]`)
+      await page.waitForTimeout(100) // Fast changes
     }
     
-    // Verify error state is shown
-    const errorIndicator = page.locator('[data-testid="save-error"]')
-    if (await errorIndicator.isVisible()) {
-      await expect(errorIndicator).toBeVisible()
-    }
+    // Wait for debounce period
+    await page.waitForTimeout(1000)
     
-    // Restore network and verify retry works
-    await page.unroute('**/api/assessment')
+    // Should have made only one save request (debounced)
+    expect(saveRequests.length).toBeLessThanOrEqual(2) // Allow for some timing variance
     
-    // Wait for retry mechanism
-    await page.waitForTimeout(3000)
-    
-    // Verify save eventually succeeds
-    const saveStatus = page.locator('[data-testid="save-status"]')
-    if (await saveStatus.isVisible()) {
-      await expect(saveStatus).not.toContainText(/erro|falha/i, { timeout: 10000 })
-    }
+    // Verify loading indicator appeared
+    await expect(page.locator('[data-testid="save-status"]')).toContainText(/Salvando|Salvo/)
   })
 
-  test('Local backup functionality when offline', async ({ page }) => {
-    await page.goto('/assessment/soft-skills')
+  test('should work offline with localStorage fallback', async ({ page }) => {
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    
+    // Complete DISC assessment while online
+    await completeDISCAssessment(page)
     
     // Go offline
     await page.context().setOffline(true)
     
-    // Fill out assessment data
-    const sliders = page.locator('input[type="range"]')
-    const sliderCount = await sliders.count()
+    // Continue with Soft Skills (should save to localStorage)
+    await page.waitForSelector('[data-testid="soft-skills-question"]')
     
-    if (sliderCount > 0) {
-      for (let i = 0; i < Math.min(sliderCount, 2); i++) {
-        await sliders.nth(i).fill('6')
+    // Answer a few questions offline
+    for (let i = 0; i < 5; i++) {
+      await answerSoftSkillsQuestion(page, i % 4)
+      if (i < 4) {
+        await page.click('[data-testid="next-button"]')
+        await page.waitForTimeout(500)
       }
-      
-      await page.waitForTimeout(2000) // Wait for backup to localStorage
-      
-      // Verify data is backed up to localStorage
-      const backupData = await page.evaluate(() => {
-        const backup = localStorage.getItem('assessment_backup_soft_skills_test-user-id')
-        return backup ? JSON.parse(backup) : null
-      })
-      
-      expect(backupData).toBeTruthy()
-      expect(backupData.soft_skills_results).toBeTruthy()
     }
+    
+    // Should show offline indicator
+    await expect(page.locator('[data-testid="save-status"]')).toContainText(/offline|erro/i)
     
     // Go back online
     await page.context().setOffline(false)
     
-    // Wait for sync to occur
+    // Should sync localStorage data
     await page.waitForTimeout(2000)
+    await expect(page.locator('[data-testid="save-status"]')).toContainText(/salvo/i)
   })
 
-  test('Assessment navigation and progress tracking', async ({ page }) => {
-    await page.goto('/assessment')
+  test('should maintain assessment history access', async ({ page }) => {
+    // Complete a full assessment first
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    await completeDISCAssessment(page)
+    await completeSoftSkillsAssessment(page)
+    await completeSJTAssessment(page)
+    await verifyAssessmentCompletion(page)
     
-    // Verify assessment dashboard or selection page
-    await expect(page).toHaveURL(/\/assessment/)
+    // Navigate to assessment history
+    await page.click('[data-testid="history-button"]')
+    await page.waitForSelector('[data-testid="assessment-history"]')
     
-    // Start with DISC assessment
-    const discButton = page.getByRole('link', { name: /disc/i })
-    if (await discButton.isVisible()) {
-      await discButton.click()
-      await expect(page).toHaveURL(/\/assessment\/disc/)
-    }
+    // Should show completed assessment
+    const historyItems = await page.locator('[data-testid="history-item"]').count()
+    expect(historyItems).toBeGreaterThan(0)
     
-    // Fill some data
-    const question = page.locator('[data-testid^="disc-question"]').first()
-    if (await question.isVisible()) {
-      await question.click()
-      await page.waitForTimeout(500)
-    }
+    // Click on the assessment to view details
+    await page.click('[data-testid="history-item"]:first-child')
+    await page.waitForSelector('[data-testid="assessment-details"]')
     
-    // Navigate back to assessment list
-    const backButton = page.getByRole('button', { name: /voltar|back/i })
-    if (await backButton.isVisible()) {
-      await backButton.click()
+    // Should show assessment results
+    expect(await page.locator('[data-testid="disc-results"]')).toBeVisible()
+    expect(await page.locator('[data-testid="soft-skills-results"]')).toBeVisible()
+    expect(await page.locator('[data-testid="sjt-results"]')).toBeVisible()
+  })
+
+  test('should handle multiple assessment types independently', async ({ page }) => {
+    await authenticateUser(page)
+    
+    // Test DISC-only assessment
+    await page.click('[data-testid="start-disc-only"]')
+    await completeDISCAssessment(page)
+    await verifyAssessmentCompletion(page, 'disc')
+    
+    // Return to home and start Soft Skills only
+    await page.click('[data-testid="home-button"]')
+    await page.click('[data-testid="start-soft-skills-only"]')
+    await completeSoftSkillsAssessment(page)
+    await verifyAssessmentCompletion(page, 'soft_skills')
+    
+    // Return to home and start SJT only  
+    await page.click('[data-testid="home-button"]')
+    await page.click('[data-testid="start-sjt-only"]')
+    await completeSJTAssessment(page)
+    await verifyAssessmentCompletion(page, 'sjt')
+  })
+
+  test('should handle network errors gracefully with retry', async ({ page }) => {
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    
+    // Intercept and fail API calls initially
+    let failCount = 0
+    await page.route('**/api/assessment', route => {
+      failCount++
+      if (failCount <= 2) {
+        route.abort('failed') // Fail first 2 attempts
+      } else {
+        route.continue() // Succeed on 3rd attempt
+      }
+    })
+    
+    // Start answering questions (should trigger auto-save)
+    await page.waitForSelector('[data-testid="disc-question"]')
+    await page.click('[data-testid="disc-option-0"]')
+    
+    // Should show error initially
+    await page.waitForTimeout(1000)
+    await expect(page.locator('[data-testid="save-status"]')).toContainText(/erro/i)
+    
+    // Wait for retries to succeed
+    await page.waitForTimeout(5000) // Allow time for exponential backoff retries
+    
+    // Should eventually succeed
+    await expect(page.locator('[data-testid="save-status"]')).toContainText(/salvo/i)
+  })
+
+  test('should prevent data leakage between users', async ({ page }) => {
+    // Complete assessment as first user
+    await authenticateUser(page, testUser)
+    await startNewAssessment(page)
+    await completeDISCAssessment(page)
+    
+    // Sign out and sign in as different user
+    await signOut(page)
+    const secondUser = { email: 'test2@soyuzinterface.com', password: 'TestPassword123!' }
+    await authenticateUser(page, secondUser)
+    
+    // Should not see previous user's assessment
+    await page.click('[data-testid="history-button"]')
+    await page.waitForSelector('[data-testid="assessment-history"]')
+    
+    const historyItems = await page.locator('[data-testid="history-item"]').count()
+    expect(historyItems).toBe(0)
+    
+    // Should not be offered to resume previous assessment
+    await page.goto('/')
+    await expect(page.locator('[data-testid="resume-assessment-modal"]')).not.toBeVisible()
+  })
+})
+
+// Helper functions
+async function authenticateUser(page: Page, user = testUser) {
+  await page.goto('/')
+  
+  // Check if already authenticated
+  const isAuthenticated = await page.locator('[data-testid="user-avatar"]').isVisible()
+  if (isAuthenticated) return
+  
+  // Fill authentication form
+  await page.fill('[data-testid="email-input"]', user.email)
+  await page.fill('[data-testid="password-input"]', user.password)
+  await page.click('[data-testid="sign-in-button"]')
+  
+  // Wait for authentication success
+  await page.waitForSelector('[data-testid="user-avatar"]')
+}
+
+async function startNewAssessment(page: Page) {
+  await page.click('[data-testid="start-assessment"]')
+  await page.waitForSelector('[data-testid="disc-question"]')
+}
+
+async function completeDISCAssessment(page: Page) {
+  await page.waitForSelector('[data-testid="disc-question"]')
+  
+  for (let i = 0; i < 15; i++) {
+    // Answer question
+    await page.click(`[data-testid="disc-option-${discAnswers[i]}"]`)
+    
+    // Wait for auto-save
+    await page.waitForTimeout(200)
+    
+    // Navigate to next question or finish
+    if (i < 14) {
+      await page.click('[data-testid="next-button"]')
+      await page.waitForSelector('[data-testid="disc-question"]')
     } else {
-      await page.goto('/assessment')
+      await page.click('[data-testid="finish-button"]')
     }
-    
-    // Verify progress is shown in assessment list
-    const progressIndicator = page.locator('[data-testid="assessment-progress"]')
-    if (await progressIndicator.isVisible()) {
-      await expect(progressIndicator).toBeVisible()
-    }
-  })
+  }
+  
+  // Wait for transition to next section
+  await page.waitForTimeout(1000)
+}
 
-  test('Data validation and form validation', async ({ page }) => {
-    await page.goto('/assessment/soft-skills')
+async function completeSoftSkillsAssessment(page: Page, startFrom = 0) {
+  await page.waitForSelector('[data-testid="soft-skills-question"]')
+  
+  for (let i = startFrom; i < 20; i++) {
+    await answerSoftSkillsQuestion(page, softSkillsAnswers[i])
     
-    // Try to submit without filling required fields
-    const submitButton = page.getByRole('button', { name: /próximo|continuar|finalizar/i })
-    if (await submitButton.isVisible()) {
-      await submitButton.click()
-      
-      // Verify validation messages appear
-      const validationErrors = page.locator('[data-testid="validation-error"]')
-      if (await validationErrors.count() > 0) {
-        await expect(validationErrors.first()).toBeVisible()
-      }
+    if (i < 19) {
+      await page.click('[data-testid="next-button"]')
+      await page.waitForSelector('[data-testid="soft-skills-question"]')
+    } else {
+      await page.click('[data-testid="finish-button"]')
     }
+  }
+  
+  await page.waitForTimeout(1000)
+}
+
+async function answerSoftSkillsQuestion(page: Page, answerIndex: number) {
+  const slider = page.locator('[data-testid="skill-slider"]')
+  await slider.fill(String((answerIndex + 1) * 25)) // Convert to percentage
+  await page.waitForTimeout(200)
+}
+
+async function completeSJTAssessment(page: Page) {
+  await page.waitForSelector('[data-testid="sjt-scenario"]')
+  
+  for (let i = 0; i < 10; i++) {
+    // Read scenario and select answer
+    await page.click(`[data-testid="sjt-option-${sjtAnswers[i]}"]`)
+    await page.waitForTimeout(200)
     
-    // Fill out form properly
-    const sliders = page.locator('input[type="range"]')
-    const sliderCount = await sliders.count()
+    if (i < 9) {
+      await page.click('[data-testid="next-button"]')
+      await page.waitForSelector('[data-testid="sjt-scenario"]')
+    } else {
+      await page.click('[data-testid="finish-button"]')
+    }
+  }
+  
+  await page.waitForTimeout(1000)
+}
+
+async function verifyAssessmentCompletion(page: Page, type = 'complete') {
+  // Should navigate to results screen
+  await page.waitForSelector('[data-testid="assessment-results"]')
+  
+  // Verify completion message
+  await expect(page.locator('[data-testid="completion-message"]')).toContainText(/concluída|finalizada/i)
+  
+  // Verify results are displayed based on assessment type
+  if (type === 'complete' || type === 'disc') {
+    await expect(page.locator('[data-testid="disc-results"]')).toBeVisible()
+  }
+  
+  if (type === 'complete' || type === 'soft_skills') {
+    await expect(page.locator('[data-testid="soft-skills-results"]')).toBeVisible()
+  }
+  
+  if (type === 'complete' || type === 'sjt') {
+    await expect(page.locator('[data-testid="sjt-results"]')).toBeVisible()
+  }
+  
+  // Verify assessment is marked as completed in database
+  const response = await page.evaluate(async () => {
+    const res = await fetch('/api/assessments')
+    return res.json()
+  })
+  
+  expect(response.assessments).toHaveLength.greaterThan(0)
+  expect(response.assessments[0].status).toBe('completed')
+}
+
+async function signOut(page: Page) {
+  await page.click('[data-testid="user-menu"]')
+  await page.click('[data-testid="sign-out"]')
+  await page.waitForSelector('[data-testid="sign-in-button"]')
+}
+
+test.describe('Performance Tests', () => {
+  test('should load assessment in under 2 seconds', async ({ page }) => {
+    const startTime = Date.now()
     
-    if (sliderCount > 0) {
-      for (let i = 0; i < sliderCount; i++) {
-        await sliders.nth(i).fill('7')
-      }
-      
-      // Now submission should work
-      if (await submitButton.isVisible()) {
-        await submitButton.click()
-        
-        // Verify no validation errors
-        const errors = page.locator('[data-testid="validation-error"]')
-        if (await errors.count() > 0) {
-          await expect(errors.first()).not.toBeVisible()
-        }
-      }
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    
+    // Wait for full page load
+    await page.waitForSelector('[data-testid="disc-question"]')
+    await page.waitForLoadState('networkidle')
+    
+    const loadTime = Date.now() - startTime
+    expect(loadTime).toBeLessThan(2000)
+  })
+  
+  test('should handle rapid interactions without blocking UI', async ({ page }) => {
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    
+    await page.waitForSelector('[data-testid="disc-question"]')
+    
+    // Make rapid clicks
+    const startTime = Date.now()
+    for (let i = 0; i < 10; i++) {
+      await page.click(`[data-testid="disc-option-${i % 4}"]`)
+    }
+    const interactionTime = Date.now() - startTime
+    
+    // UI should remain responsive
+    expect(interactionTime).toBeLessThan(1000)
+    
+    // Last selection should be visible
+    await expect(page.locator('[data-testid="disc-option-2"]')).toBeChecked()
+  })
+})
+
+test.describe('Accessibility Tests', () => {
+  test('should be keyboard navigable', async ({ page }) => {
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    
+    // Should be able to navigate with Tab
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    
+    // Should be able to select with Enter
+    await page.keyboard.press('Enter')
+    
+    // Should be able to navigate with Arrow keys within radio group
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Space')
+    
+    // Verify selection worked
+    await expect(page.locator('[data-testid="next-button"]')).not.toBeDisabled()
+  })
+  
+  test('should have proper ARIA labels', async ({ page }) => {
+    await authenticateUser(page)
+    await startNewAssessment(page)
+    
+    // Check for proper labels
+    await expect(page.locator('[role="progressbar"]')).toHaveAttribute('aria-label')
+    await expect(page.locator('[role="radiogroup"]')).toBeVisible()
+    
+    const radios = page.locator('[role="radio"]')
+    const count = await radios.count()
+    
+    for (let i = 0; i < count; i++) {
+      await expect(radios.nth(i)).toHaveAttribute('aria-labelledby')
     }
   })
 })

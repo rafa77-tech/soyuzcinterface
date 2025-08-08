@@ -2,20 +2,22 @@ import { NextRequest } from 'next/server'
 import { POST } from '../route'
 import { Assessment } from '@/lib/supabase/types'
 
-// Mock createRouteHandlerClient
+// Mock createRouteHandlerClient with stable chainable query object
+const createStableQuery = () => {
+  const query: any = {}
+  query.select = jest.fn(() => query)
+  query.eq = jest.fn(() => query)
+  query.single = jest.fn()
+  return query
+}
+
+const stableQuery = createStableQuery()
+
 const mockSupabaseClient = {
   auth: {
     getUser: jest.fn(),
   },
-  from: jest.fn(() => ({
-    select: jest.fn(() => ({
-      eq: jest.fn(() => ({
-        eq: jest.fn(() => ({
-          single: jest.fn(),
-        })),
-      })),
-    })),
-  })),
+  from: jest.fn(() => stableQuery),
 }
 
 jest.mock('@/lib/supabase/server', () => ({
@@ -69,7 +71,7 @@ describe('/api/assessment/export', () => {
     })
     
     // Default setup: assessment found
-    mockSupabaseClient.from().select().eq().eq().single.mockResolvedValue({
+    stableQuery.single.mockResolvedValue({
       data: mockCompletedAssessment,
       error: null,
     })
@@ -142,7 +144,7 @@ describe('/api/assessment/export', () => {
         },
       }
 
-      mockSupabaseClient.from().select().eq().eq().single.mockResolvedValue({
+      stableQuery.single.mockResolvedValue({
         data: softSkillsAssessment,
         error: null,
       })
@@ -174,7 +176,7 @@ describe('/api/assessment/export', () => {
         sjt_results: [0.8, 0.6, 0.9, 0.7, 0.5],
       }
 
-      mockSupabaseClient.from().select().eq().eq().single.mockResolvedValue({
+      stableQuery.single.mockResolvedValue({
         data: sjtAssessment,
         error: null,
       })
@@ -250,7 +252,7 @@ describe('/api/assessment/export', () => {
     })
 
     it('should handle null completed_at in CSV export', async () => {
-      mockSupabaseClient.from().select().eq().eq().single.mockResolvedValue({
+      stableQuery.single.mockResolvedValue({
         data: mockInProgressAssessment,
         error: null,
       })
@@ -330,7 +332,7 @@ describe('/api/assessment/export', () => {
         user_id: 'other-user-id',
       }
 
-      mockSupabaseClient.from().select().eq().eq().single.mockResolvedValue({
+      stableQuery.single.mockResolvedValue({
         data: null,
         error: { message: 'Assessment not found' },
       })
@@ -360,7 +362,7 @@ describe('/api/assessment/export', () => {
 
   describe('Error scenarios', () => {
     it('should handle invalid assessment ID', async () => {
-      mockSupabaseClient.from().select().eq().eq().single.mockResolvedValue({
+      stableQuery.single.mockResolvedValue({
         data: null,
         error: { message: 'Assessment not found' },
       })
@@ -384,7 +386,7 @@ describe('/api/assessment/export', () => {
     })
 
     it('should reject export of incomplete assessments', async () => {
-      mockSupabaseClient.from().select().eq().eq().single.mockResolvedValue({
+      stableQuery.single.mockResolvedValue({
         data: mockInProgressAssessment,
         error: null,
       })

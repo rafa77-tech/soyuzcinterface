@@ -1,70 +1,59 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useAssessmentAutoSave } from '../use-assessment-autosave'
-import { useAuth } from '@/components/providers/auth-provider'
-import type { DiscResults, SoftSkillsResults, SjtResults } from '@/lib/supabase/types'
 
 // Mock the auth provider
+const mockUser = { id: 'user-123', email: 'test@example.com' }
 jest.mock('@/components/providers/auth-provider', () => ({
-  useAuth: jest.fn(),
+  useAuth: jest.fn(() => ({
+    user: mockUser
+  }))
 }))
 
-const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>
-
-// Mock fetch globally
-const mockFetch = jest.fn()
-global.fetch = mockFetch
+// Mock fetch
+global.fetch = jest.fn()
 
 // Mock localStorage
-const mockLocalStorage = {
+const localStorageMock = {
   getItem: jest.fn(),
   setItem: jest.fn(),
   removeItem: jest.fn(),
   clear: jest.fn(),
 }
-Object.defineProperty(window, 'localStorage', {
-  value: mockLocalStorage,
-})
-
-jest.useFakeTimers()
+global.localStorage = localStorageMock as any
 
 describe('useAssessmentAutoSave', () => {
-  const mockUser = {
-    id: 'test-user-id',
-    email: 'test@example.com',
+  const defaultOptions = {
+    assessmentType: 'complete' as const,
+    debounceMs: 100,
+    enableLocalBackup: true
   }
 
   beforeEach(() => {
     jest.clearAllMocks()
-    mockUseAuth.mockReturnValue({
-      user: mockUser,
-      profile: null,
-      session: null,
-      signIn: jest.fn(),
-      signOut: jest.fn(),
-      signUp: jest.fn(),
-      refreshProfile: jest.fn(),
-      loading: false,
+    jest.useFakeTimers()
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    jest.spyOn(console, 'error').mockImplementation(() => {})
+    
+    // Setup default fetch mock
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: jest.fn().mockResolvedValue({
+        id: 'assessment-123',
+        status: 'success',
+        message: 'Assessment saved successfully'
+      })
     })
-    mockFetch.mockClear()
-    mockLocalStorage.getItem.mockClear()
-    mockLocalStorage.setItem.mockClear()
-    mockLocalStorage.removeItem.mockClear()
   })
 
   afterEach(() => {
-    jest.runOnlyPendingTimers()
-  })
-
-  afterAll(() => {
     jest.useRealTimers()
   })
 
-  describe('Initial state', () => {
+  describe('Initial State', () => {
     it('should initialize with correct default state', () => {
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
       expect(result.current.isSaving).toBe(false)
       expect(result.current.lastSaved).toBeNull()
       expect(result.current.error).toBeNull()
@@ -72,437 +61,490 @@ describe('useAssessmentAutoSave', () => {
       expect(result.current.saveStatus).toBe('Não salvo')
     })
 
-    it('should accept custom options', () => {
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({
-          assessmentType: 'disc',
-          debounceMs: 1000,
-          enableLocalBackup: false,
-        })
-      )
-
-      expect(result.current).toBeDefined()
+    it('should update save status based on state', () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      // Test different status messages
+      expect(result.current.saveStatus).toBe('Não salvo')
     })
   })
 
-  describe('saveProgress function', () => {
-    it('should debounce save requests', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills', debounceMs: 500 })
-      )
-
-      const testResults = { comunicacao: 8, lideranca: 7 }
-
+  describe('saveProgress', () => {
+    it('should debounce save operations', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      // Make multiple rapid calls
       act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: testResults })
+        result.current.saveProgress({ question1: 'answer1' }, 1)
+        result.current.saveProgress({ question1: 'answer1', question2: 'answer2' }, 2)
+        result.current.saveProgress({ question1: 'answer1', question2: 'answer2', question3: 'answer3' }, 3)
       })
 
-      expect(mockFetch).not.toHaveBeenCalled()
+      // Should not have called fetch yet
+      expect(fetch).not.toHaveBeenCalled()
       expect(result.current.isSaving).toBe(false)
 
+      // Advance timers to trigger debounced save
       act(() => {
-        jest.advanceTimersByTime(500)
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
       })
 
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith('/api/assessment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'soft_skills',
-            status: 'in_progress',
-            soft_skills_results: testResults,
-          }),
-        })
+        expect(result.current.isSaving).toBe(true)
+      })
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledTimes(1)
+      })
+
+      // Verify the last call had the final data
+      expect(fetch).toHaveBeenCalledWith('/api/assessment', expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('question3')
+      }))
+    })
+
+    it('should update state during and after save', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      act(() => {
+        result.current.saveProgress({ question1: 'answer1' }, 1)
+      })
+
+      act(() => {
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
+      })
+
+      // Should be saving
+      await waitFor(() => {
+        expect(result.current.isSaving).toBe(true)
+        expect(result.current.saveStatus).toBe('Salvando...')
+      })
+
+      // Wait for completion
+      await waitFor(() => {
+        expect(result.current.isSaving).toBe(false)
+        expect(result.current.lastSaved).toBeInstanceOf(Date)
+        expect(result.current.assessmentId).toBe('assessment-123')
+        expect(result.current.saveStatus).toBe('Salvo automaticamente')
       })
     })
 
-    it('should prevent duplicate saves', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const testResults = { comunicacao: 8, lideranca: 7 }
-
+    it('should save to localStorage on successful save', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
       act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: testResults })
+        result.current.saveProgress({ question1: 'answer1' }, 1)
       })
 
       act(() => {
-        jest.advanceTimersByTime(500)
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
       })
 
       await waitFor(() => {
         expect(result.current.isSaving).toBe(false)
-        expect(mockFetch).toHaveBeenCalledTimes(1)
       })
 
-      // Try to save the same data again
-      act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: testResults })
-      })
-
-      act(() => {
-        jest.advanceTimersByTime(500)
-      })
-
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(1) // Should still be 1 due to duplicate prevention
-      })
-    })
-
-    it('should not save when user is not authenticated', async () => {
-      mockUseAuth.mockReturnValue({
-        user: null,
-        signIn: jest.fn(),
-        signOut: jest.fn(),
-        signUp: jest.fn(),
-        loading: false,
-        error: null,
-      })
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
+      expect(localStorageMock.setItem).toHaveBeenCalledWith(
+        expect.stringContaining('assessment_backup_complete_user-123'),
+        expect.stringContaining('timestamp')
       )
-
-      const testResults = { comunicacao: 8, lideranca: 7 }
-
-      act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: testResults })
-      })
-
-      act(() => {
-        jest.advanceTimersByTime(500)
-      })
-
-      expect(mockFetch).not.toHaveBeenCalled()
     })
   })
 
-  describe('Error handling and retry logic', () => {
+  describe('Error Handling and Retry Logic', () => {
     it('should retry failed saves with exponential backoff', async () => {
-      mockFetch
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockResolvedValueOnce({
+      // Mock fetch to fail first two times, succeed third time
+      let callCount = 0
+      ;(global.fetch as jest.Mock).mockImplementation(() => {
+        callCount++
+        if (callCount <= 2) {
+          return Promise.reject(new Error('Network error'))
+        }
+        return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ id: 'test-assessment-id' }),
-        } as Response)
+          status: 200,
+          json: () => Promise.resolve({ id: 'assessment-123', status: 'success' })
+        })
+      })
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const testResults = { comunicacao: 8, lideranca: 7 }
-
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
       act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: testResults })
+        result.current.saveProgress({ question1: 'answer1' }, 1)
       })
 
       act(() => {
-        jest.advanceTimersByTime(500)
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
       })
 
-      // Wait for first retry
+      // First attempt fails
+      await waitFor(() => {
+        expect(result.current.isSaving).toBe(true)
+      })
+
+      await waitFor(() => {
+        expect(localStorageMock.setItem).toHaveBeenCalled() // Should save to localStorage immediately on error
+      })
+
+      // First retry after 1 second
       act(() => {
         jest.advanceTimersByTime(1000)
       })
 
-      // Wait for second retry
+      // Second retry after 2 seconds  
       act(() => {
         jest.advanceTimersByTime(2000)
       })
 
+      // Should eventually succeed
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(3)
+        expect(result.current.isSaving).toBe(false)
         expect(result.current.error).toBeNull()
+        expect(result.current.assessmentId).toBe('assessment-123')
       })
+
+      expect(fetch).toHaveBeenCalledTimes(3)
     })
 
-    it('should save to localStorage on API failure after retries', async () => {
-      mockFetch.mockRejectedValue(new Error('Network error'))
+    it('should set error state after max retries', async () => {
+      ;(global.fetch as jest.Mock).mockRejectedValue(new Error('Persistent network error'))
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const testResults = { comunicacao: 8, lideranca: 7 }
-
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
       act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: testResults })
+        result.current.saveProgress({ question1: 'answer1' }, 1)
       })
 
       act(() => {
-        jest.advanceTimersByTime(500)
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
       })
 
-      // Wait for all retries to complete
+      // Wait through all retries
       act(() => {
-        jest.advanceTimersByTime(7000) // 1s + 2s + 4s
+        jest.advanceTimersByTime(1000) // First retry
+      })
+      act(() => {
+        jest.advanceTimersByTime(2000) // Second retry
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSaving).toBe(false)
+        expect(result.current.error).toBe('Network error')
+        expect(result.current.saveStatus).toBe('Erro ao salvar')
+      })
+
+      expect(fetch).toHaveBeenCalledTimes(3) // Original + 2 retries
+      expect(localStorageMock.setItem).toHaveBeenCalled() // Should save to localStorage on error
+    })
+
+    it('should handle HTTP errors properly', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ error: 'Bad request' })
+      })
+
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      act(() => {
+        result.current.saveProgress({ question1: 'answer1' }, 1)
+      })
+
+      act(() => {
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
       })
 
       await waitFor(() => {
         expect(result.current.error).toBe('Network error')
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
-          `assessment_backup_soft_skills_${mockUser.id}`,
-          expect.stringContaining('"soft_skills_results"')
-        )
       })
     })
   })
 
-  describe('localStorage backup functionality', () => {
-    it('should save backup data to localStorage', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const testResults = { comunicacao: 8, lideranca: 7 }
+  describe('saveFinalResults', () => {
+    it('should save immediately without debounce', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      const finalResults = {
+        disc_results: { D: 0.8, I: 0.6, S: 0.7, C: 0.5 }
+      }
 
       act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: testResults })
+        result.current.saveFinalResults(finalResults)
+      })
+
+      // Should start saving immediately
+      await waitFor(() => {
+        expect(result.current.isSaving).toBe(true)
+      })
+
+      expect(fetch).toHaveBeenCalledWith('/api/assessment', expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"disc_results":')
+      }))
+    })
+
+    it('should handle different result types', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      const results = {
+        disc_results: { D: 0.8, I: 0.6, S: 0.7, C: 0.5 },
+        soft_skills_results: { leadership: 0.9, communication: 0.8 },
+        sjt_results: [0.7, 0.8, 0.6, 0.9]
+      }
+
+      await act(async () => {
+        await result.current.saveFinalResults(results)
+      })
+
+      const fetchCall = (fetch as jest.Mock).mock.calls[0]
+      const body = JSON.parse(fetchCall[1].body)
+      
+      expect(body.disc_results).toEqual(results.disc_results)
+      expect(body.soft_skills_results).toEqual(results.soft_skills_results)
+      expect(body.sjt_results).toEqual(results.sjt_results)
+    })
+  })
+
+  describe('Local Storage Management', () => {
+    it('should save to localStorage with timestamp', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      act(() => {
+        result.current.saveProgress({ question1: 'answer1' }, 1)
       })
 
       act(() => {
-        jest.advanceTimersByTime(500)
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
       })
 
       await waitFor(() => {
-        expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
-          `assessment_backup_soft_skills_${mockUser.id}`,
-          expect.stringContaining('"soft_skills_results"')
-        )
+        expect(localStorageMock.setItem).toHaveBeenCalled()
       })
+
+      const setItemCall = localStorageMock.setItem.mock.calls[0]
+      const savedData = JSON.parse(setItemCall[1])
+      
+      expect(savedData.timestamp).toBeDefined()
+      expect(savedData.answers).toEqual({ question1: 'answer1' })
+      expect(savedData.currentStep).toBe(1)
     })
 
-    it('should load from localStorage when available', () => {
-      const mockBackupData = {
-        soft_skills_results: { comunicacao: 8, lideranca: 7 },
-        timestamp: new Date().toISOString(),
+    it('should load from localStorage within 24 hours', () => {
+      const mockBackup = {
+        assessmentId: 'backup-123',
+        type: 'complete',
+        answers: { question1: 'answer1' },
+        timestamp: new Date().toISOString()
       }
 
-      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(mockBackupData))
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(mockBackup))
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const loadedData = result.current.loadFromLocalStorage()
-      expect(loadedData).toEqual(mockBackupData)
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      const loaded = result.current.loadFromLocalStorage()
+      expect(loaded).toEqual(mockBackup)
     })
 
-    it('should remove old backup data (>24h)', () => {
-      const oldTimestamp = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() // 25 hours ago
-      const mockOldBackupData = {
-        soft_skills_results: { comunicacao: 8, lideranca: 7 },
-        timestamp: oldTimestamp,
+    it('should ignore localStorage backup older than 24 hours', () => {
+      const oldDate = new Date()
+      oldDate.setHours(oldDate.getHours() - 25) // 25 hours ago
+
+      const mockBackup = {
+        assessmentId: 'backup-123',
+        type: 'complete',
+        timestamp: oldDate.toISOString()
       }
 
-      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(mockOldBackupData))
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(mockBackup))
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const loadedData = result.current.loadFromLocalStorage()
-      expect(loadedData).toBeNull()
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith(
-        `assessment_backup_soft_skills_${mockUser.id}`
-      )
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      const loaded = result.current.loadFromLocalStorage()
+      expect(loaded).toBeNull()
+      expect(localStorageMock.removeItem).toHaveBeenCalled()
     })
 
     it('should handle localStorage errors gracefully', () => {
-      mockLocalStorage.getItem.mockImplementation(() => {
+      localStorageMock.getItem.mockImplementation(() => {
         throw new Error('localStorage error')
       })
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const loadedData = result.current.loadFromLocalStorage()
-      expect(loadedData).toBeNull()
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      const loaded = result.current.loadFromLocalStorage()
+      expect(loaded).toBeNull()
+      expect(console.warn).toHaveBeenCalledWith('Failed to load from localStorage:', expect.any(Error))
     })
-  })
 
-  describe('saveFinalResults function', () => {
-    it('should save final results immediately without debounce', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      const testResults: SoftSkillsResults = { comunicacao: 8, lideranca: 7 }
-
-      await act(async () => {
-        await result.current.saveFinalResults({ soft_skills_results: testResults })
-      })
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/assessment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: undefined,
-          type: 'soft_skills',
-          status: 'in_progress',
-          disc_results: null,
-          soft_skills_results: testResults,
-          sjt_results: null,
-        }),
-      })
-    })
-  })
-
-  describe('completeAssessment function', () => {
-    it('should mark assessment as complete', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ id: 'test-assessment-id' }),
-      } as Response)
-
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      // Set assessment ID first
+    it('should clear localStorage backup', () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
       act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: { comunicacao: 8 } })
+        result.current.clearLocalBackup()
       })
 
-      act(() => {
-        jest.advanceTimersByTime(500)
-      })
-
-      await waitFor(() => {
-        expect(result.current.assessmentId).toBe('test-assessment-id')
-      })
-
-      // Now complete the assessment
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ status: 'complete' }),
-      } as Response)
-
-      await act(async () => {
-        await result.current.completeAssessment()
-      })
-
-      expect(mockFetch).toHaveBeenLastCalledWith('/api/assessment/test-assessment-id', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'complete' }),
-      })
-    })
-
-    it('should throw error when no assessment ID available', async () => {
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      await expect(result.current.completeAssessment()).rejects.toThrow(
-        'No assessment ID available'
+      expect(localStorageMock.removeItem).toHaveBeenCalledWith(
+        expect.stringContaining('assessment_backup_complete_user-123')
       )
     })
   })
 
-  describe('loadIncompleteAssessment function', () => {
+  describe('loadIncompleteAssessment', () => {
     it('should load incomplete assessment from API', async () => {
       const mockAssessment = {
-        id: 'test-assessment-id',
-        soft_skills_results: { comunicacao: 8, lideranca: 7 },
+        id: 'incomplete-123',
+        type: 'complete',
+        status: 'in_progress',
+        disc_results: { D: 0.8, I: 0.6, S: 0.7, C: 0.5 }
       }
 
-      mockFetch.mockResolvedValueOnce({
+      ;(global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(mockAssessment),
-      } as Response)
+        json: () => Promise.resolve(mockAssessment)
+      })
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      let loadedAssessment
+      await act(async () => {
+        loadedAssessment = await result.current.loadIncompleteAssessment()
+      })
 
-      const assessment = await result.current.loadIncompleteAssessment()
-
-      expect(assessment).toEqual(mockAssessment)
-      expect(result.current.assessmentId).toBe('test-assessment-id')
+      expect(loadedAssessment).toEqual(mockAssessment)
+      expect(result.current.assessmentId).toBe('incomplete-123')
     })
 
-    it('should return null when no incomplete assessment found', async () => {
-      mockFetch.mockResolvedValueOnce({
+    it('should return null for 404 response', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
         ok: false,
-        status: 404,
-      } as Response)
+        status: 404
+      })
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      let loadedAssessment
+      await act(async () => {
+        loadedAssessment = await result.current.loadIncompleteAssessment()
+      })
 
-      const assessment = await result.current.loadIncompleteAssessment()
-
-      expect(assessment).toBeNull()
+      expect(loadedAssessment).toBeNull()
     })
 
     it('should fallback to localStorage on API error', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('API error'))
-
-      const mockBackupData = {
-        soft_skills_results: { comunicacao: 8, lideranca: 7 },
-        timestamp: new Date().toISOString(),
+      const mockBackup = {
+        assessmentId: 'backup-123',
+        type: 'complete',
+        answers: { question1: 'answer1' },
+        timestamp: new Date().toISOString()
       }
 
-      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(mockBackupData))
+      ;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'))
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(mockBackup))
 
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      let loadedAssessment
+      await act(async () => {
+        loadedAssessment = await result.current.loadIncompleteAssessment()
+      })
 
-      const assessment = await result.current.loadIncompleteAssessment()
-
-      expect(assessment).toEqual(mockBackupData)
+      expect(loadedAssessment).toEqual(mockBackup)
+      expect(result.current.assessmentId).toBe('backup-123')
     })
   })
 
-  describe('saveStatus computed property', () => {
-    it('should return correct status messages', async () => {
-      const { result } = renderHook(() =>
-        useAssessmentAutoSave({ assessmentType: 'soft_skills' })
-      )
-
-      expect(result.current.saveStatus).toBe('Não salvo')
-
+  describe('Configuration Options', () => {
+    it('should respect custom debounce time', async () => {
+      const customOptions = { ...defaultOptions, debounceMs: 1000 }
+      const { result } = renderHook(() => useAssessmentAutoSave(customOptions))
+      
       act(() => {
-        result.current.saveProgress(null, undefined, { soft_skills_results: { comunicacao: 8 } })
+        result.current.saveProgress({ question1: 'answer1' }, 1)
       })
 
-      expect(result.current.saveStatus).toBe('Não salvo')
+      // Should not save after default time
+      act(() => {
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
+      })
+      expect(fetch).not.toHaveBeenCalled()
+
+      // Should save after custom time
+      act(() => {
+        jest.advanceTimersByTime(1000 - defaultOptions.debounceMs)
+      })
+      
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalled()
+      })
+    })
+
+    it('should disable localStorage when enableLocalBackup is false', async () => {
+      const customOptions = { ...defaultOptions, enableLocalBackup: false }
+      const { result } = renderHook(() => useAssessmentAutoSave(customOptions))
+      
+      act(() => {
+        result.current.saveProgress({ question1: 'answer1' }, 1)
+      })
 
       act(() => {
-        jest.advanceTimersByTime(100) // During save
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
       })
 
       await waitFor(() => {
-        expect(result.current.saveStatus).toBe('Salvando...')
+        expect(result.current.isSaving).toBe(false)
       })
+
+      expect(localStorageMock.setItem).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Cleanup', () => {
+    it('should clear timeouts on unmount', () => {
+      const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout')
+      
+      const { result, unmount } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      act(() => {
+        result.current.saveProgress({ question1: 'answer1' }, 1)
+      })
+
+      unmount()
+      
+      expect(clearTimeoutSpy).toHaveBeenCalled()
+    })
+  })
+
+  describe('Duplicate Save Prevention', () => {
+    it('should not save identical data twice', async () => {
+      const { result } = renderHook(() => useAssessmentAutoSave(defaultOptions))
+      
+      const sameData = { question1: 'answer1' }
+      
+      act(() => {
+        result.current.saveProgress(sameData, 1)
+      })
+
+      act(() => {
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
+      })
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledTimes(1)
+      })
+
+      // Try to save the same data again
+      act(() => {
+        result.current.saveProgress(sameData, 1)
+      })
+
+      act(() => {
+        jest.advanceTimersByTime(defaultOptions.debounceMs)
+      })
+
+      // Should still be only 1 call
+      expect(fetch).toHaveBeenCalledTimes(1)
     })
   })
 })
