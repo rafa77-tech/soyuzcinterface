@@ -25,7 +25,6 @@ Object.defineProperty(window, 'localStorage', {
   value: mockLocalStorage,
 })
 
-// Mock timers
 jest.useFakeTimers()
 
 describe('useAssessmentAutoSave', () => {

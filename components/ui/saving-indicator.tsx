@@ -34,6 +34,12 @@ export function SavingIndicator({
           text: 'Erro ao salvar',
           color: 'text-red-400'
         }
+      case 'idle':
+        return {
+          icon: null,
+          text: 'Não salvo',
+          color: 'text-gray-400'
+        }
       default:
         return null
     }
@@ -41,7 +47,7 @@ export function SavingIndicator({
 
   const content = getContent()
   
-  if (!content || status === 'idle') {
+  if (!content) {
     return null
   }
 

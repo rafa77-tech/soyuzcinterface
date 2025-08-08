@@ -1,7 +1,6 @@
 import { renderHook, act } from '@testing-library/react'
 import { useDebounce } from '../use-debounce'
 
-// Mock timers
 jest.useFakeTimers()
 
 describe('useDebounce', () => {
