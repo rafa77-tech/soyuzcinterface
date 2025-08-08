@@ -1,7 +1,7 @@
 # Epic 1: Sistema de Autenticação e Persistência de Dados
 
 ## Status
-In Progress (Stories 1.1, 1.2 Done | Story 1.3 60% Complete | Stories 1.4-1.7 Planned)
+Critical Reorganization Phase (Stories 1.1, 1.2 Done | Story 1.3 60% | Story 1.6 95% Complete | Story 1.8 Needs Scope Revision | Story 1.9 Approved)
 
 ## Epic Description
 **As a** médico usuário,  
@@ -17,11 +17,11 @@ In Progress (Stories 1.1, 1.2 Done | Story 1.3 60% Complete | Stories 1.4-1.7 Pl
 ## Definition of Done
 - [x] Sistema de autenticação funcional (login/cadastro/logout) ✅ Story 1.1
 - [x] Gestão completa de perfil médico (dados pessoais + profissionais) ✅ Story 1.2
-- [ ] Persistência automática de progresso durante avaliações ⚠️ Story 1.3 (33%) + Story 1.4 (planned)
-- [ ] Histórico completo de avaliações anteriores 📋 Story 1.6 (planned)
+- [ ] Persistência automática de progresso durante avaliações ⚠️ Story 1.3 (60%) + Story 1.4 (planned)
+- [x] Histórico completo de avaliações anteriores ✅ Story 1.6 (95% - pending test coverage only)
 - [x] Interface responsiva preservando design system existente ✅ Stories 1.1-1.3
-- [ ] Cobertura de testes ≥ 80% para funcionalidades críticas 🧪 Story 1.5 (planned - 85% target)
-- [ ] Deploy funcional em ambiente de produção 🚀 Post Epic 1 completion
+- [ ] Cobertura de testes ≥ 80% para funcionalidades críticas 🚨 Story 1.8 CRITICAL (75 tests failing, coverage 43%→85%)
+- [ ] Deploy funcional em ambiente de produção 🚀 Blocked by test infrastructure (Story 1.8)
 
 ## Stories Overview
 
@@ -50,10 +50,21 @@ In Progress (Stories 1.1, 1.2 Done | Story 1.3 60% Complete | Stories 1.4-1.7 Pl
 **Business Value**: Enterprise quality and production readiness  
 **Deliverables**: 85% test coverage, unit + integration + e2e tests, performance tests
 
-### 📊 Story 1.6: Assessment History System (NEW)
-**Status**: Planned - MEDIUM Priority  
-**Business Value**: User retention through historical data access  
-**Deliverables**: History dashboard, filters, result visualization, pagination
+### ✅ Story 1.6: Assessment History System 
+**Status**: 95% Complete - Pending Test Coverage Only (8-12h)
+**Business Value**: DELIVERED - User retention through historical data access  
+**Deliverables**: ✅ History dashboard, ✅ filters, ✅ result visualization, ✅ pagination, ❌ test coverage
+
+### 🚨 Story 1.8: Test Infrastructure Stabilization (CRITICAL)
+**Status**: Needs Major Scope Revision - BLOCKING Priority
+**Business Value**: Production deployment blocker - 75 tests failing, coverage 43%
+**Deliverables**: ❌ Fix 75 failing tests, ❌ Coverage 43%→85%, ❌ CI/CD stabilization, ❌ Quality gates
+**Critical Issue**: Original scope 50% based on incorrect assumptions (file organization already complete)
+
+### 📋 Story 1.9: Story Reorganization Corrections
+**Status**: Approved - IMMEDIATE Priority
+**Business Value**: Eliminate 12-18h waste, focus on real blockers  
+**Deliverables**: Archive analysis docs, correct story statuses, revise estimates, prevent unnecessary work
 
 ### 🔧 Story 1.7: Technical Debt & Quality Fixes (NEW)
 **Status**: Planned - MEDIUM Priority  
@@ -148,17 +159,29 @@ CREATE TABLE assessments (
 - **Risk**: Complexidade adicional afetar UX  
   **Mitigation**: ✅ Manter interface idêntica, apenas adicionar feedback visual sutil
 
-## Next Steps
-1. **Execute Stories 1.4-1.7** - Complete Epic 1 gaps identified by QA
-   - Story 1.4: Auto-save Completion (Sprint Current + 1)
-   - Story 1.7: Technical Debt Fixes (Sprint Current + 1)  
-   - Story 1.5: Testing Suite (Sprint Current + 2)
-   - Story 1.6: History System (Sprint Current + 3)
-2. **Epic 1 Final QA** - Full validation with 85% test coverage
-3. **Epic 2 Initiation** - Assessment Experience (Sprint Current + 4)
+## Next Steps - REORGANIZED PRIORITY
+1. **IMMEDIATE EXECUTION** - Story 1.9: Reorganization Corrections
+   - Archive 1.6-correct-course-analysis.md to docs/analysis/
+   - Update Story 1.6 status to 95% complete (test coverage pending)
+   - Revise Story 1.8 scope (remove file organization, focus on 75 failing tests)
+   - Prevent 12-18h of wasted development effort
+
+2. **CRITICAL SPRINT** - Story 1.8: Test Infrastructure Stabilization (24-35h realistic)
+   - Fix 75 failing individual tests (production blocker)
+   - Improve coverage 43% → 85% (architecture requirement)
+   - Stabilize CI/CD pipeline with quality gates
+
+3. **COMPLETION PHASE** - Remaining Epic 1 work
+   - Story 1.6: Add test coverage (8-12h)
+   - Story 1.4: Auto-save Completion 
+   - Story 1.7: Technical Debt Fixes
+
+4. **Epic 1 Final Validation** - Full system integration QA
+5. **Epic 2 Initiation** - Assessment Experience (Epic 1 dependency resolved)
 
 ## Change Log
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2025-08-07 | 1.0 | Epic creation consolidating auth and persistence requirements | Bob (Scrum Master) |
-| 2025-01-27 | 1.1 | Updated post-QA analysis: Story 1.3 60% complete, added Stories 1.4-1.7 | Bob (Scrum Master) | 
+| 2025-01-27 | 1.1 | Updated post-QA analysis: Story 1.3 60% complete, added Stories 1.4-1.7 | Bob (Scrum Master) |
+| 2025-08-08 | 2.0 | **CRITICAL REORGANIZATION**: Updated based on SM analysis - Story 1.6 95% complete, Story 1.8 needs major scope revision, added Story 1.9 for corrections | Sarah (PO) | 

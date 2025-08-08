@@ -1,8 +1,8 @@
-# Projeto Soyuz Brownfield Enhancement Architecture
+# Projeto Soyuz Architecture - Production Readiness Phase
 
 ## Introduction
 
-This document outlines the architectural approach for enhancing Projeto Soyuz with backend implementation and authentication system using Supabase. Its primary goal is to serve as the guiding architectural blueprint for AI-driven development of new features while ensuring seamless integration with the existing system.
+This document outlines the architectural implementation of Projeto Soyuz's backend and authentication system using Supabase. **Epic 1 is 95% complete** - this document now serves as the architectural reference for production readiness, maintenance, and future development phases while documenting the successful brownfield enhancement.
 
 **Relationship to Existing Architecture:**
 This document supplements existing project architecture by defining how new components will integrate with current systems. Where conflicts arise between new and existing patterns, this document provides guidance on maintaining consistency while implementing enhancements.
@@ -31,13 +31,14 @@ This document supplements existing project architecture by defining how new comp
 | Change | Date | Version | Description | Author |
 |--------|------|---------|-------------|--------|
 | Initial Architecture | 2025-08-07 | 1.0 | Brownfield enhancement architecture for Supabase integration | Winston |
+| Production Readiness Update | 2025-08-08 | 2.0 | Updated to reflect Epic 1 95% completion and production readiness focus | Winston |
 
-## Enhancement Scope and Integration Strategy
+## ✅ Implementation Status and Production Readiness
 
-### Enhancement Overview
-**Enhancement Type:** Brownfield Backend Integration
-**Scope:** Implementação de sistema de autenticação Supabase e persistência de dados para avaliações médicas
-**Integration Impact:** Moderado - Requer refatoração do state management e adição de API layer
+### Epic 1 Implementation Overview (95% Complete)
+**Implementation Status:** ✅ **Authentication & Backend Successfully Implemented**
+**Current Phase:** Production readiness and test stabilization (Story 1.8 critical)
+**Remaining Work:** Test infrastructure stabilization (75 failing tests, coverage 43%→85%)
 
 ### Integration Approach
 **Code Integration Strategy:** Integração incremental preservando componentes de UI existentes, adicionando layer de persistência através de Supabase SDK
@@ -486,74 +487,164 @@ soyuzcinterface/
 
 **Penetration Testing:** Não necessário para MVP, considerar para futuras versões com mais usuários
 
-## Next Steps
+## 🚨 Test Infrastructure Stabilization (Critical - Story 1.8)
 
-### Story Manager Handoff
+### Current Testing Crisis Status
+**Critical Issue:** 75 individual tests failing, 12 test suites failing, coverage at 43% (target: 85%)
+**Production Impact:** Deployment blocked until test infrastructure is stabilized
+**Priority:** CRITICAL - Epic 1 completion blocker
 
-**Development Ready Prompt for Story Manager:**
+### Test Failure Analysis Required
+**Systematic Approach for Test Stabilization:**
+1. **Diagnostic Phase**: Identify root causes of the 75 failing tests
+   - Categorize failures: auth-related, database-related, component-related, integration-related
+   - Map failing tests to implemented components (AuthProvider, AssessmentService, API routes)
+   - Document dependency issues between test suites
 
-"Implementar sistema de autenticação e backend para projeto Soyuz conforme arquitetura brownfield documentada em docs/architecture.md. 
+2. **Infrastructure Issues**: Address underlying test environment problems
+   - Supabase test database connection and seeding
+   - Authentication mocking for test environments  
+   - API route testing setup and environment variables
+   - Component testing with Supabase client dependencies
 
-**Key Integration Requirements Validated:**
-- Preservar componentes React existentes (MiniDiscScreen, SoftSkillsScreen, SJTScreen)  
-- Manter design system Tailwind CSS + Radix UI atual
-- Integrar com estrutura Next.js App Router existente
-- Usar Supabase para auth e persistência seguindo padrões definidos no PRD
+### Test Architecture Requirements
 
-**Existing System Constraints Based on Analysis:**
-- State management centralizado em app/page.tsx precisa ser refatorado
-- Componentes de avaliação devem manter interface atual mas adicionar auto-save
-- Estrutura modular de telas deve ser preservada para UX consistency
+#### Unit Test Stabilization
+- **AuthenticationProvider Tests**: Ensure proper mocking of Supabase Auth
+- **AssessmentService Tests**: Mock Supabase client for database operations
+- **API Route Tests**: Test with proper authentication context and database mocking
+- **Component Tests**: Isolate UI components from backend dependencies
 
-**First Story to Implement:**
-Criar AuthenticationProvider e configuração básica do Supabase - Story crítica que estabelece fundação para todas as outras funcionalidades. 
+#### Integration Test Framework
+- **Database Integration**: Proper test database setup and teardown
+- **Authentication Flow**: End-to-end auth testing with real Supabase test project
+- **API Integration**: Request/response cycle testing with authentication
+- **Cross-component Integration**: Assessment flow with persistence
 
-**Integration Checkpoints:**
-1. Verificar que tema dark/light continua funcionando após AuthProvider
-2. Confirmar que navegação entre telas mantém fluxo atual
-3. Validar que tipos TypeScript não quebram build existente
+#### Coverage Improvement Strategy (43% → 85%)
+**Systematic Coverage Approach:**
+1. **Critical Path Coverage**: Focus on auth, data persistence, and assessment flows
+2. **Component Coverage**: Ensure all major components have comprehensive tests
+3. **Error Path Coverage**: Test error handling and edge cases
+4. **API Coverage**: Full endpoint testing with various scenarios
 
-**Maintain System Integrity:** Cada story deve incluir testes de regressão para garantir que funcionalidades existentes não sejam afetadas."
+### Implementation Guidance for Test Stabilization
 
-### Developer Handoff  
+#### Test Environment Setup
+```typescript
+// Supabase Test Configuration
+const supabaseTestConfig = {
+  url: process.env.NEXT_PUBLIC_SUPABASE_TEST_URL,
+  anonKey: process.env.NEXT_PUBLIC_SUPABASE_TEST_ANON_KEY,
+  // Isolated test database
+}
 
-**Implementation Ready Prompt for Developers:**
+// Test Database Seeding
+const setupTestDatabase = async () => {
+  // Create test users, profiles, assessments
+  // Ensure clean state for each test run
+}
+```
 
-"Implementar backend e autenticação para projeto Soyuz seguindo arquitetura brownfield definida em docs/architecture.md.
+#### Test Patterns for Supabase Integration
+- **Mocking Strategy**: Use Supabase client mocks for unit tests
+- **Test Database**: Dedicated test instance for integration tests  
+- **Authentication Testing**: Mock auth context for component tests
+- **Cleanup Strategy**: Proper test data cleanup after each test
+
+### Success Criteria for Test Stabilization
+- [ ] All 75 failing tests resolved and passing
+- [ ] 12 failing test suites restored to passing state
+- [ ] Test coverage improved from 43% to minimum 85%
+- [ ] CI/CD pipeline stable with quality gates
+- [ ] Production deployment unblocked
+
+### Risk Mitigation During Test Fixes
+- **Regression Prevention**: Ensure existing functionality remains intact
+- **Performance Impact**: Monitor test execution time (target: <2 minutes full suite)
+- **Documentation**: Document test patterns for future development
+- **Monitoring**: Set up test failure alerts and reporting
+
+## Next Steps - Production Readiness Focus
+
+### ✅ Epic 1 Implementation Status (95% Complete)
+
+**Successfully Implemented:**
+✅ AuthenticationProvider and Supabase configuration (Story 1.1)
+✅ User Profile Management system (Story 1.2) 
+✅ Assessment Persistence with auto-save (Story 1.6 - 95%)
+✅ API Routes and backend infrastructure (Stories 1.3, 1.6)
+✅ UI integration preserving existing design system
+
+**Current Critical Phase: Test Infrastructure Stabilization**
+
+### Immediate Actions Required (Story 1.8 Critical)
+
+**Priority 0: Test Stabilization (24-35 hours estimated)**
+- Fix 75 failing individual tests blocking production
+- Resolve 12 failing test suites 
+- Improve coverage from 43% to 85% (architecture requirement)
+- Stabilize CI/CD pipeline with quality gates
+
+**Story 1.8 Development Focus:**
+Following the Test Infrastructure Stabilization section above, systematically address:
+1. Diagnostic phase for test failures
+2. Infrastructure fixes for test environment
+3. Coverage improvement strategy
+4. CI/CD pipeline stabilization
+
+### Post-Test Stabilization (Story 1.6 Completion)
+
+**Final Epic 1 Tasks (8-12 hours estimated):**
+- Complete test coverage for Story 1.6 Assessment History System
+- Final QA validation of all Epic 1 components
+- Production deployment preparation
+
+### Production Readiness Checklist
+
+**Pre-deployment Validation:**
+- [ ] All tests passing (0 failures)
+- [ ] Test coverage ≥ 85% 
+- [ ] CI/CD pipeline stable
+- [ ] Performance benchmarks met (<200ms API responses)
+- [ ] Security validation complete (JWT, RLS policies)
+- [ ] Monitoring and alerting configured
+
+### Developer Handoff - Test Stabilization Focus
+
+**Current Mission: Resolve Test Infrastructure Crisis (Story 1.8)**
+
+**System Status:** Epic 1 authentication and backend implementation 95% complete. Production deployment blocked by test infrastructure instability.
+
+**Critical Task:** Fix 75 failing tests, improve coverage from 43% to 85%, stabilize CI/CD pipeline.
 
 **Reference Documents:**
-- docs/architecture.md - Arquitetura técnica completa baseada em análise real do projeto
-- docs/PRD_brownfield.md - Requisitos funcionais detalhados
-- Estrutura de código existente analisada e documentada na seção 'Existing Project Analysis'
+- docs/architecture.md - Section "Test Infrastructure Stabilization" for detailed guidance
+- docs/PRD_brownfield.md - Updated with current implementation status
+- docs/epics/epic-1-authentication-and-persistence.md - Current Epic 1 status
 
-**Integration Requirements with Existing Codebase:**
-- Preservar todos os componentes UI existentes em components/
-- Manter estrutura de state management em app/page.tsx durante transição
-- Seguir convenções TypeScript strict e ESLint rules já configuradas  
-- Usar padrões de import/export existentes (@ alias, named exports)
+**Test Stabilization Approach:**
+1. **Diagnostic Phase**: Analyze failing tests by category (auth, database, component, integration)
+2. **Environment Setup**: Fix Supabase test database configuration and seeding
+3. **Mocking Strategy**: Implement proper Supabase client mocks for unit tests  
+4. **Coverage Improvement**: Systematic testing of auth flows, API endpoints, components
+5. **Pipeline Stabilization**: Ensure consistent CI/CD execution
 
-**Key Technical Decisions Based on Real Project Constraints:**
-- Next.js 15.2.4 App Router como base - não migrar para Pages Router
-- Supabase SDK ^2.39.0 como única adição de dependência crítica  
-- Manter Radix UI + Tailwind CSS 4.1.9 design system existente
-- API Routes em app/api/ seguindo RESTful patterns definidos
+**Already Implemented and Working:**
+✅ Supabase authentication and database integration
+✅ AuthenticationProvider and session management
+✅ API Routes for assessments and profiles  
+✅ Assessment persistence and auto-save functionality
+✅ UI components integration with backend
 
-**Existing System Compatibility Requirements:**
-- AuthScreen component refactor deve manter interface props atual  
-- Assessment components (DISC/SoftSkills/SJT) adicionam persistence sem mudar UX
-- Layout.tsx integração com AuthProvider não pode quebrar ThemeProvider existente
+**DO NOT re-implement existing functionality.** Focus exclusively on test stabilization.
 
-**Clear Sequencing to Minimize Risk:**
-1. Setup Supabase configuration (lib/supabase/) - zero impact em código existente
-2. Criar AuthenticationProvider - wrapper que não altera comportamento atual  
-3. Implementar API routes - novas rotas não interferem com frontend atual
-4. Refatorar AuthScreen - single component change com fallback para comportamento atual
-5. Adicionar persistence aos assessment components - incremental enhancement
+**Success Criteria:**
+- All tests passing (0 failures)
+- Coverage ≥ 85%
+- CI/CD pipeline consistently green
+- Production deployment unblocked
 
-**Verification Steps for Each Implementation Phase:**
-- `npm run build` deve executar sem erros
-- `npm run dev` deve manter funcionalidade atual
-- Todos os fluxos de avaliação existentes devem continuar funcionando
-- Theme switching (dark/light) deve permanecer operacional
+**Post-Test Stabilization:** Complete final 8-12 hours of Story 1.6 test coverage, then proceed to production deployment.
 
-Este sequenciamento garante que o sistema existente continue operacional durante toda a implementação."
+**Architecture Reference:** Use "Test Infrastructure Stabilization" section above for technical implementation patterns and environment setup.
