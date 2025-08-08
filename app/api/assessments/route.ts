@@ -1,50 +1,91 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@/lib/supabase/server'
-import assessmentService from '@/lib/services/assessment-service'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
+import { assessmentService } from '../../../lib/services/assessment-service'
+import { z } from 'zod'
+
+// Validation schema for query parameters
+const ListAssessmentsParamsSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+  type: z.enum(['complete', 'disc', 'soft_skills', 'sjt']).optional(),
+  status: z.enum(['in_progress', 'completed', 'abandoned']).optional(),
+  date_from: z.string().datetime().optional(),
+  date_to: z.string().datetime().optional()
+})
 
 export async function GET(request: NextRequest) {
   try {
-    // Verificar autenticação
-    const supabase = createRouteHandlerClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // Get authenticated user
+    const supabase = createRouteHandlerClient({ cookies })
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
     
-    if (authError || !user) {
+    if (authError || !session?.user) {
       return NextResponse.json(
-        { error: 'Unauthorized - Valid authentication required' },
+        { error: 'Authentication required' }, 
         { status: 401 }
       )
     }
 
-    // Extrair parâmetros de paginação da URL
-    const url = new URL(request.url)
-    const page = parseInt(url.searchParams.get('page') || '1')
-    const limit = parseInt(url.searchParams.get('limit') || '20')
+    const userId = session.user.id
+    const { searchParams } = new URL(request.url)
 
-    // Validar parâmetros de paginação
-    if (page < 1 || limit < 1 || limit > 100) {
+    // Parse and validate query parameters
+    const params = ListAssessmentsParamsSchema.parse({
+      page: searchParams.get('page'),
+      limit: searchParams.get('limit'),
+      type: searchParams.get('type'),
+      status: searchParams.get('status'),
+      date_from: searchParams.get('date_from'),
+      date_to: searchParams.get('date_to')
+    })
+
+    // Get assessments
+    const result = await assessmentService.listAssessments({
+      userId,
+      page: params.page,
+      limit: params.limit,
+      type: params.type,
+      status: params.status,
+      dateFrom: params.date_from,
+      dateTo: params.date_to
+    })
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(result.count / params.limit)
+    const hasNextPage = params.page < totalPages
+    const hasPrevPage = params.page > 1
+
+    return NextResponse.json({
+      success: true,
+      data: result.data,
+      pagination: {
+        current_page: params.page,
+        total_pages: totalPages,
+        total_count: result.count,
+        page_size: params.limit,
+        has_next_page: hasNextPage,
+        has_prev_page: hasPrevPage
+      }
+    })
+
+  } catch (error) {
+    console.error('Assessment list error:', error)
+
+    // Handle validation errors
+    if (error instanceof z.ZodError) {
       return NextResponse.json(
         { 
-          error: 'Invalid pagination parameters',
-          message: 'Page must be >= 1 and limit must be between 1 and 100'
-        },
+          error: 'Invalid query parameters',
+          details: error.errors
+        }, 
         { status: 400 }
       )
     }
 
-    // Buscar histórico de avaliações
-    const result = await assessmentService.getAssessmentHistory(user.id, page, limit)
-
-    return NextResponse.json(result, { status: 200 })
-    
-  } catch (error) {
-    console.error('Error in GET /api/assessments:', error)
-    
     return NextResponse.json(
-      { 
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error occurred'
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }
-} 
+}

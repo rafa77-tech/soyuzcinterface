@@ -12,14 +12,14 @@ import { ResumeAssessmentModal } from '@/components/assessment/resume-assessment
 import { AssessmentHistory } from '@/components/assessment/assessment-history'
 import { ResultsViewer } from '@/components/assessment/results-viewer'
 import { useAuth } from '@/components/providers/auth-provider'
-import type { Assessment } from '@/lib/supabase/types'
+import type { AssessmentData } from '@/lib/services/assessment-service'
 
 export default function Home() {
   const { user } = useAuth()
   const [currentScreen, setCurrentScreen] = useState(0)
   const [showHistory, setShowHistory] = useState(false)
-  const [selectedAssessment, setSelectedAssessment] = useState<Assessment | null>(null)
-  const [incompleteAssessment, setIncompleteAssessment] = useState<Assessment | null>(null)
+  const [selectedAssessment, setSelectedAssessment] = useState<AssessmentData | null>(null)
+  const [incompleteAssessment, setIncompleteAssessment] = useState<AssessmentData | null>(null)
   const [showResumeModal, setShowResumeModal] = useState(false)
   const [userData, setUserData] = useState({
     name: '',
@@ -49,13 +49,15 @@ export default function Home() {
   // Função para verificar avaliações incompletas quando usuário autentica
   useEffect(() => {
     const checkIncompleteAssessment = async () => {
-      if (user && currentScreen >= 2) { // Só verificar após autenticação
+      if (user && currentScreen >= 1) { // Verificar após autenticação
         try {
-          const response = await fetch('/api/assessment')
+          const response = await fetch('/api/assessments?status=in_progress&limit=1')
           if (response.ok) {
-            const assessment = await response.json()
-            setIncompleteAssessment(assessment)
-            setShowResumeModal(true)
+            const { data } = await response.json()
+            if (data && data.length > 0) {
+              setIncompleteAssessment(data[0])
+              setShowResumeModal(true)
+            }
           }
         } catch (error) {
           console.error('Error checking incomplete assessment:', error)
@@ -66,17 +68,8 @@ export default function Home() {
     checkIncompleteAssessment()
   }, [user, currentScreen])
 
-  const handleResumeAssessment = (assessment: Assessment) => {
-    // Determinar para qual tela ir baseado no tipo da avaliação
-    if (assessment.type === 'disc' || assessment.type === 'complete') {
-      setCurrentScreen(2) // DISC Screen
-    } else if (assessment.type === 'soft_skills') {
-      setCurrentScreen(3) // Soft Skills Screen
-    } else if (assessment.type === 'sjt') {
-      setCurrentScreen(4) // SJT Screen
-    }
-    
-    // Se há resultados salvos, restaurar estado
+  const handleResumeAssessment = (assessment: AssessmentData) => {
+    // Restaurar estado dos resultados se existirem
     if (assessment.disc_results) {
       setDiscResults(assessment.disc_results as any)
     }
@@ -86,11 +79,47 @@ export default function Home() {
     if (assessment.sjt_results) {
       setSjtResults(assessment.sjt_results as number[])
     }
+
+    // Determinar qual tela mostrar baseado no progresso
+    if (assessment.type === 'complete') {
+      // Para avaliação completa, determinar baseado no que já foi feito
+      if (!assessment.disc_results) {
+        setCurrentScreen(2) // DISC Screen
+      } else if (!assessment.soft_skills_results) {
+        setCurrentScreen(3) // Soft Skills Screen
+      } else if (!assessment.sjt_results) {
+        setCurrentScreen(4) // SJT Screen
+      } else {
+        setCurrentScreen(5) // Completion Screen
+      }
+    } else {
+      // Para avaliações específicas
+      if (assessment.type === 'disc') {
+        setCurrentScreen(2)
+      } else if (assessment.type === 'soft_skills') {
+        setCurrentScreen(3)
+      } else if (assessment.type === 'sjt') {
+        setCurrentScreen(4)
+      }
+    }
     
     setShowResumeModal(false)
   }
 
-  const handleStartNewAssessment = () => {
+  const handleStartNewAssessment = async () => {
+    // Abandonar avaliação anterior se existir
+    if (incompleteAssessment?.id) {
+      try {
+        await fetch(`/api/assessment/${incompleteAssessment.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'abandoned' })
+        })
+      } catch (error) {
+        console.error('Error abandoning previous assessment:', error)
+      }
+    }
+
     // Limpar estados para nova avaliação
     setDiscResults({ D: 0, I: 0, S: 0, C: 0 })
     setSoftSkillsResults({
@@ -104,6 +133,7 @@ export default function Home() {
       negociacao: 0
     })
     setSjtResults([])
+    setIncompleteAssessment(null)
     setCurrentScreen(2) // Começar do DISC
     setShowResumeModal(false)
   }
@@ -112,7 +142,7 @@ export default function Home() {
     setShowHistory(true)
   }
 
-  const handleViewResults = (assessment: Assessment) => {
+  const handleViewResults = (assessment: AssessmentData) => {
     setSelectedAssessment(assessment)
     setShowHistory(false)
   }
@@ -164,7 +194,10 @@ export default function Home() {
   return (
     <main className="min-h-screen">
       {showHistory && !selectedAssessment && (
-        <AssessmentHistory />
+        <AssessmentHistory 
+          userId={user?.id || ''}
+          onViewAssessment={handleViewResults}
+        />
       )}
       
       {selectedAssessment && (
@@ -179,10 +212,10 @@ export default function Home() {
       <AIChatWidget />
       <ResumeAssessmentModal
         isOpen={showResumeModal}
+        onOpenChange={setShowResumeModal}
         assessment={incompleteAssessment}
-        onResume={handleResumeAssessment}
+        onResume={() => incompleteAssessment && handleResumeAssessment(incompleteAssessment)}
         onStartNew={handleStartNewAssessment}
-        onClose={() => setShowResumeModal(false)}
       />
     </main>
   )

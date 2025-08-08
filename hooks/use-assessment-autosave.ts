@@ -1,299 +1,268 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useAuth } from '@/components/providers/auth-provider'
-import type { DiscResults, SoftSkillsResults, SjtResults } from '@/lib/supabase/types'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { 
+  AssessmentData, 
+  DiscResults, 
+  SoftSkillsResults, 
+  SjtResults 
+} from '../lib/services/assessment-service'
 
-interface AssessmentProgress {
-  assessmentId?: string
-  type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-  disc_results?: DiscResults | null
-  soft_skills_results?: SoftSkillsResults | null
-  sjt_results?: SjtResults | null
-  currentStep?: number
-  answers?: any
-}
-
-interface UseAssessmentAutoSaveOptions {
-  assessmentType: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-  debounceMs?: number
-  enableLocalBackup?: boolean
-}
-
-interface AutoSaveState {
+export interface AutoSaveState {
+  assessmentId: string | null
   isSaving: boolean
   lastSaved: Date | null
   error: string | null
-  assessmentId: string | null
 }
 
-export function useAssessmentAutoSave({
-  assessmentType,
-  debounceMs = 500,
-  enableLocalBackup = true
-}: UseAssessmentAutoSaveOptions) {
-  const { user } = useAuth()
+export interface AutoSaveOptions {
+  assessmentType: 'complete' | 'disc' | 'soft_skills' | 'sjt'
+  debounceMs?: number
+  enableLocalStorage?: boolean
+}
+
+export interface SaveData {
+  type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
+  status?: 'in_progress' | 'completed'
+  disc_results?: DiscResults
+  soft_skills_results?: SoftSkillsResults
+  sjt_results?: SjtResults
+  progress_data?: Record<string, unknown>
+}
+
+export function useAssessmentAutoSave(options: AutoSaveOptions) {
+  const { assessmentType, debounceMs = 500, enableLocalStorage = true } = options
+  
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>({
+    assessmentId: null,
     isSaving: false,
     lastSaved: null,
-    error: null,
-    assessmentId: null
+    error: null
   })
 
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSaveDataRef = useRef<string>('')
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const lastSaveRef = useRef<AssessmentProgress | null>(null)
 
-  // Local storage backup key
-  const localStorageKey = `assessment_backup_${assessmentType}_${user?.id || 'anonymous'}`
+  // Load existing assessment ID from localStorage on mount
+  useEffect(() => {
+    if (enableLocalStorage) {
+      const storageKey = `assessment_autosave_${assessmentType}`
+      const saved = localStorage.getItem(storageKey)
+      if (saved) {
+        try {
+          const { assessmentId, lastSaved } = JSON.parse(saved)
+          if (assessmentId) {
+            setAutoSaveState(prev => ({
+              ...prev,
+              assessmentId,
+              lastSaved: lastSaved ? new Date(lastSaved) : null
+            }))
+          }
+        } catch (error) {
+          console.warn('Failed to load autosave data from localStorage:', error)
+          localStorage.removeItem(storageKey)
+        }
+      }
+    }
+  }, [assessmentType, enableLocalStorage])
 
-  // Função para salvar no localStorage como backup
-  const saveToLocalStorage = useCallback((progress: AssessmentProgress) => {
-    if (!enableLocalBackup) return
+  // Save to localStorage
+  const saveToLocalStorage = useCallback((data: SaveData, assessmentId?: string) => {
+    if (!enableLocalStorage) return
+
+    const storageKey = `assessment_autosave_${assessmentType}`
+    const backupData = {
+      assessmentId: assessmentId || autoSaveState.assessmentId,
+      lastSaved: new Date().toISOString(),
+      data
+    }
     
     try {
-      const backup = {
-        ...progress,
-        timestamp: new Date().toISOString()
-      }
-      localStorage.setItem(localStorageKey, JSON.stringify(backup))
+      localStorage.setItem(storageKey, JSON.stringify(backupData))
     } catch (error) {
       console.warn('Failed to save to localStorage:', error)
     }
-  }, [localStorageKey, enableLocalBackup])
+  }, [assessmentType, enableLocalStorage, autoSaveState.assessmentId])
 
-  // Função para carregar do localStorage
-  const loadFromLocalStorage = useCallback((): AssessmentProgress | null => {
-    if (!enableLocalBackup) return null
+  // Clear localStorage
+  const clearLocalStorage = useCallback(() => {
+    if (!enableLocalStorage) return
+    
+    const storageKey = `assessment_autosave_${assessmentType}`
+    localStorage.removeItem(storageKey)
+  }, [assessmentType, enableLocalStorage])
+
+  // Retry logic with exponential backoff
+  const executeWithRetry = useCallback(async (
+    fn: () => Promise<AssessmentData>,
+    retryCount = 0
+  ): Promise<AssessmentData> => {
+    const maxRetries = 3
+    const delays = [1000, 2000, 4000] // 1s, 2s, 4s
     
     try {
-      const backup = localStorage.getItem(localStorageKey)
-      if (backup) {
-        const parsed = JSON.parse(backup)
-        // Verificar se o backup não é muito antigo (24h)
-        const backupTime = new Date(parsed.timestamp)
-        const now = new Date()
-        const hoursDiff = (now.getTime() - backupTime.getTime()) / (1000 * 60 * 60)
+      return await fn()
+    } catch (error) {
+      console.error(`Save attempt ${retryCount + 1} failed:`, error)
+      
+      if (retryCount < maxRetries) {
+        setAutoSaveState(prev => ({
+          ...prev,
+          error: `⚠️ Erro ao salvar - tentando novamente (${retryCount + 1}/${maxRetries})`
+        }))
         
-        if (hoursDiff < 24) {
-          return parsed
-        } else {
-          // Remover backup antigo
-          localStorage.removeItem(localStorageKey)
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to load from localStorage:', error)
-    }
-    return null
-  }, [localStorageKey, enableLocalBackup])
-
-  // Função para limpar backup local
-  const clearLocalBackup = useCallback(() => {
-    if (!enableLocalBackup) return
-    try {
-      localStorage.removeItem(localStorageKey)
-    } catch (error) {
-      console.warn('Failed to clear localStorage backup:', error)
-    }
-  }, [localStorageKey, enableLocalBackup])
-
-  // Auto-save function with retry logic and exponential backoff
-  const performAutoSave = useCallback(async (progress: AssessmentProgress, retryCount = 0) => {
-    if (!user) {
-      console.warn('User not authenticated, skipping auto-save')
-      return
-    }
-
-    // Evitar salvamentos duplicados
-    if (lastSaveRef.current && JSON.stringify(lastSaveRef.current) === JSON.stringify(progress)) {
-      return
-    }
-
-    setAutoSaveState(prev => ({ ...prev, isSaving: true, error: null }))
-
-    try {
-      const response = await fetch('/api/assessment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id: progress.assessmentId,
-          type: progress.type,
-          status: 'in_progress',
-          disc_results: progress.disc_results,
-          soft_skills_results: progress.soft_skills_results,
-          sjt_results: progress.sjt_results
+        return new Promise((resolve, reject) => {
+          retryTimeoutRef.current = setTimeout(() => {
+            executeWithRetry(fn, retryCount + 1)
+              .then(resolve)
+              .catch(reject)
+          }, delays[retryCount])
         })
+      } else {
+        throw error
+      }
+    }
+  }, [])
+
+  // Actual save function
+  const performSave = useCallback(async (data: SaveData): Promise<AssessmentData> => {
+    setAutoSaveState(prev => ({ ...prev, isSaving: true, error: null }))
+    
+    try {
+      // Save to localStorage immediately as backup
+      saveToLocalStorage(data)
+
+      const savePayload = {
+        ...data,
+        type: assessmentType
+      }
+
+      // Make API call
+      const response = await executeWithRetry(async () => {
+        const url = autoSaveState.assessmentId 
+          ? `/api/assessment`
+          : `/api/assessment`
+        
+        const method = 'POST'
+        const body = autoSaveState.assessmentId
+          ? { ...savePayload, id: autoSaveState.assessmentId }
+          : savePayload
+
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }))
+          throw new Error(errorData.error || `HTTP ${res.status}`)
+        }
+
+        return res.json()
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+      const savedAssessment = response.data
+      const now = new Date()
 
-      const result = await response.json()
-      
       setAutoSaveState(prev => ({
         ...prev,
+        assessmentId: savedAssessment.id,
         isSaving: false,
-        lastSaved: new Date(),
-        assessmentId: result.id,
+        lastSaved: now,
         error: null
       }))
 
-      lastSaveRef.current = { ...progress, assessmentId: result.id }
+      // Update localStorage with new assessment ID
+      saveToLocalStorage(data, savedAssessment.id)
 
-      // Salvar backup local após sucesso
-      saveToLocalStorage({ ...progress, assessmentId: result.id })
+      return savedAssessment
 
     } catch (error) {
-      console.error('Auto-save failed:', error)
-      
-      // Salvar no localStorage imediatamente em caso de erro
-      saveToLocalStorage(progress)
-      
-      // Retry logic with exponential backoff (max 3 attempts)
-      if (retryCount < 2) {
-        const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s
-        retryTimeoutRef.current = setTimeout(() => {
-          performAutoSave(progress, retryCount + 1)
-        }, delay)
-        return
-      }
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       
       setAutoSaveState(prev => ({
         ...prev,
         isSaving: false,
-        error: error instanceof Error ? 'Network error' : 'Unknown error'
+        error: `⚠️ Erro ao salvar: ${errorMessage}. Dados salvos localmente.`
       }))
-    }
-  }, [user, saveToLocalStorage])
 
-  // Função debounced para auto-save
-  const debouncedAutoSave = useCallback((progress: AssessmentProgress) => {
-    // Limpar timeouts anteriores
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-    }
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current)
-    }
-
-    // Configurar novo timeout
-    timeoutRef.current = setTimeout(() => {
-      performAutoSave(progress)
-    }, debounceMs)
-  }, [performAutoSave, debounceMs])
-
-  // Função para salvar imediatamente (sem debounce)
-  const saveImmediately = useCallback((progress: AssessmentProgress) => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-    }
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current)
-    }
-    return performAutoSave(progress)
-  }, [performAutoSave])
-
-  // Função para salvar progresso de respostas intermediárias
-  const saveProgress = useCallback((answers: any, currentStep?: number, results?: any) => {
-    const progress: AssessmentProgress = {
-      assessmentId: autoSaveState.assessmentId || undefined,
-      type: assessmentType,
-      answers,
-      currentStep,
-      ...results
-    }
-
-    debouncedAutoSave(progress)
-  }, [assessmentType, autoSaveState.assessmentId, debouncedAutoSave])
-
-  // Função para salvar resultados finais
-  const saveFinalResults = useCallback(async (results: {
-    disc_results?: DiscResults
-    soft_skills_results?: SoftSkillsResults  
-    sjt_results?: SjtResults
-  }) => {
-    const progress: AssessmentProgress = {
-      assessmentId: autoSaveState.assessmentId || undefined,
-      type: assessmentType,
-      disc_results: results.disc_results || null,
-      soft_skills_results: results.soft_skills_results || null,
-      sjt_results: results.sjt_results || null
-    }
-
-    await saveImmediately(progress)
-  }, [assessmentType, autoSaveState.assessmentId, saveImmediately])
-
-  // Função para marcar avaliação como completa
-  const completeAssessment = useCallback(async () => {
-    if (!autoSaveState.assessmentId) {
-      throw new Error('No assessment ID available')
-    }
-
-    try {
-      const response = await fetch(`/api/assessment/${autoSaveState.assessmentId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action: 'complete' })
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      // Limpar backup local após conclusão
-      clearLocalBackup()
-
-      return await response.json()
-    } catch (error) {
-      console.error('Failed to complete assessment:', error)
       throw error
     }
-  }, [autoSaveState.assessmentId, clearLocalBackup])
+  }, [assessmentType, autoSaveState.assessmentId, saveToLocalStorage, executeWithRetry])
 
-  // Função para carregar avaliação incompleta
-  const loadIncompleteAssessment = useCallback(async () => {
-    try {
-      const response = await fetch('/api/assessment')
-      if (response.status === 404) {
-        return null // Nenhuma avaliação incompleta encontrada
-      }
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const assessment = await response.json()
-      
-      // Definir o assessmentId no estado para uso posterior
-      setAutoSaveState(prev => ({
-        ...prev,
-        assessmentId: assessment.id
-      }))
-
-      return assessment
-    } catch (error) {
-      console.error('Failed to load incomplete assessment:', error)
-      // Em caso de erro, tentar carregar do localStorage
-      const localData = loadFromLocalStorage()
-      if (localData && localData.assessmentId) {
-        setAutoSaveState(prev => ({
-          ...prev,
-          assessmentId: localData.assessmentId
-        }))
-      }
-      return localData
+  // Debounced save function
+  const debouncedSave = useCallback((data: SaveData) => {
+    // Clear existing timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
     }
-  }, [loadFromLocalStorage])
 
-  // Cleanup na desmontagem do componente
+    // Check if data has actually changed to prevent duplicate saves
+    const dataString = JSON.stringify(data)
+    if (dataString === lastSaveDataRef.current) {
+      return
+    }
+    lastSaveDataRef.current = dataString
+
+    // Set loading state immediately for user feedback
+    setAutoSaveState(prev => ({ ...prev, isSaving: true, error: null }))
+
+    // Debounce the actual save
+    debounceTimeoutRef.current = setTimeout(() => {
+      performSave(data).catch(error => {
+        console.error('Auto-save failed:', error)
+      })
+    }, debounceMs)
+  }, [debounceMs, performSave])
+
+  // Manual save (bypasses debouncing)
+  const saveNow = useCallback(async (data: SaveData): Promise<AssessmentData> => {
+    // Clear any pending debounced save
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
+      debounceTimeoutRef.current = null
+    }
+
+    return performSave(data)
+  }, [performSave])
+
+  // Complete assessment
+  const completeAssessment = useCallback(async (finalData: SaveData): Promise<AssessmentData> => {
+    const completedData = {
+      ...finalData,
+      status: 'completed' as const
+    }
+    
+    const result = await saveNow(completedData)
+    
+    // Clear localStorage on successful completion
+    clearLocalStorage()
+    
+    return result
+  }, [saveNow, clearLocalStorage])
+
+  // Manual retry for failed saves
+  const retryManual = useCallback(async () => {
+    if (!enableLocalStorage) return
+    
+    const storageKey = `assessment_autosave_${assessmentType}`
+    const saved = localStorage.getItem(storageKey)
+    
+    if (saved) {
+      try {
+        const { data } = JSON.parse(saved)
+        await performSave(data)
+      } catch (error) {
+        console.error('Manual retry failed:', error)
+      }
+    }
+  }, [assessmentType, enableLocalStorage, performSave])
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
       }
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current)
@@ -302,21 +271,11 @@ export function useAssessmentAutoSave({
   }, [])
 
   return {
-    // Estado
-    ...autoSaveState,
-    
-    // Funções
-    saveProgress,
-    saveFinalResults,
+    autoSaveState,
+    debouncedSave,
+    saveNow,
     completeAssessment,
-    loadIncompleteAssessment,
-    loadFromLocalStorage,
-    clearLocalBackup,
-    
-    // Status de salvamento legível
-    saveStatus: autoSaveState.isSaving ? 'Salvando...' : 
-                autoSaveState.error ? 'Erro ao salvar' :
-                autoSaveState.lastSaved ? 'Salvo automaticamente' : 
-                'Não salvo'
+    retryManual,
+    clearLocalStorage
   }
-} 
+}

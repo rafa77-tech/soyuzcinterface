@@ -7,6 +7,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { useAuth } from '@/components/providers/auth-provider'
+import { useAssessmentAutoSave } from '@/hooks/use-assessment-autosave'
+import { SaveIndicator } from '@/components/assessment/save-indicator'
 
 interface MiniDiscScreenProps {
   onNext: () => void
@@ -71,51 +73,11 @@ export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [answers, setAnswers] = useState<string[]>([])
   const [selectedAnswer, setSelectedAnswer] = useState('')
-  const [assessmentId, setAssessmentId] = useState<string | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<string>('')
-
-  // Auto-save function
-  const autoSave = async (progressAnswers: string[], step: number) => {
-    if (!user) return
-
-    setIsSaving(true)
-    setSaveStatus('Salvando...')
-
-    try {
-      const response = await fetch('/api/assessment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id: assessmentId,
-          type: 'disc',
-          status: 'in_progress',
-          disc_results: null, // Ainda não temos resultados finais
-          soft_skills_results: null,
-          sjt_results: null
-        })
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        if (!assessmentId) {
-          setAssessmentId(result.id)
-        }
-        setSaveStatus('Salvo automaticamente')
-      } else {
-        setSaveStatus('Erro ao salvar')
-      }
-    } catch (error) {
-      console.error('Auto-save error:', error)
-      setSaveStatus('Erro ao salvar')
-    } finally {
-      setIsSaving(false)
-      // Clear status after 3 seconds
-      setTimeout(() => setSaveStatus(''), 3000)
-    }
-  }
+  
+  // Use the new auto-save hook
+  const { autoSaveState, debouncedSave, completeAssessment, retryManual } = useAssessmentAutoSave({
+    assessmentType: 'disc'
+  })
 
   const handleNext = () => {
     if (selectedAnswer) {
@@ -125,16 +87,25 @@ export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
       if (currentQuestion < questions.length - 1) {
         setCurrentQuestion(currentQuestion + 1)
         setSelectedAnswer('')
-        // Auto-save progress
-        autoSave(newAnswers, currentQuestion + 1)
+        
+        // Auto-save progress with new hook
+        debouncedSave({
+          type: 'disc',
+          status: 'in_progress',
+          progress_data: {
+            currentQuestion: currentQuestion + 1,
+            answers: newAnswers,
+            timestamp: new Date().toISOString()
+          }
+        })
       } else {
-        // Calculate results
+        // Calculate final results
         const results = { D: 0, I: 0, S: 0, C: 0 }
         newAnswers.forEach(answer => {
           results[answer as keyof typeof results]++
         })
         
-        // Save final results
+        // Save final results and mark as completed for this phase
         saveFinalResults(results)
         onResults(results)
         onNext()
@@ -142,36 +113,21 @@ export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
     }
   }
 
-  // Save final DISC results
   const saveFinalResults = async (results: { D: number; I: number; S: number; C: number }) => {
-    if (!user) return
-
-    setIsSaving(true)
-    
     try {
-      const response = await fetch('/api/assessment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id: assessmentId,
-          type: 'disc',
-          status: 'in_progress',
-          disc_results: results,
-          soft_skills_results: null,
-          sjt_results: null
-        })
+      await completeAssessment({
+        type: 'disc',
+        status: 'completed',
+        disc_results: results,
+        progress_data: {
+          currentQuestion: questions.length,
+          answers,
+          completed: true,
+          timestamp: new Date().toISOString()
+        }
       })
-
-      if (response.ok) {
-        const result = await response.json()
-        setAssessmentId(result.id)
-      }
     } catch (error) {
-      console.error('Error saving final results:', error)
-    } finally {
-      setIsSaving(false)
+      console.error('Error saving final DISC results:', error)
     }
   }
 
@@ -179,26 +135,28 @@ export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl stellar-card">
-        <CardHeader>
-          <div className="flex justify-between items-center mb-4">
-            <CardTitle className="text-2xl font-bold text-white">Análise DISC</CardTitle>
-            <div className="flex items-center space-x-2">
-              {saveStatus && (
-                <span className={`text-xs ${
-                  saveStatus.includes('Erro') ? 'text-red-400' : 
-                  saveStatus.includes('Salvando') ? 'text-yellow-400' : 'text-green-400'
-                }`}>
-                  {saveStatus}
+      <main role="main" className="w-full max-w-2xl">
+        <Card className="w-full stellar-card">
+          <CardHeader>
+            <div className="flex justify-between items-center mb-4">
+              <CardTitle className="text-2xl font-bold text-white">Análise DISC</CardTitle>
+              <div className="flex items-center space-x-2">
+                <SaveIndicator 
+                  autoSaveState={autoSaveState} 
+                  onRetryManual={retryManual}
+                  className="text-xs"
+                />
+                <span className="text-sm text-gray-400">
+                  Questão {currentQuestion + 1} de {questions.length}
                 </span>
-              )}
-              <span className="text-sm text-gray-400">
-                {currentQuestion + 1} de {questions.length}
-              </span>
+              </div>
             </div>
-          </div>
-          <Progress value={progress} className="w-full" />
-        </CardHeader>
+            <Progress 
+              value={progress} 
+              className="w-full" 
+              aria-label={`Progresso da avaliação: ${Math.round(progress)}% completo`}
+            />
+          </CardHeader>
         <CardContent className="space-y-6">
           <div>
             <h3 className="text-lg font-semibold text-white mb-4">
@@ -224,7 +182,8 @@ export function MiniDiscScreen({ onNext, onResults }: MiniDiscScreenProps) {
             {currentQuestion < questions.length - 1 ? 'Próxima' : 'Finalizar DISC'}
           </Button>
         </CardContent>
-      </Card>
+        </Card>
+      </main>
     </div>
   )
 }

@@ -1,350 +1,246 @@
-import { supabase } from '@/lib/supabase/client'
-import { createRouteHandlerClient } from '@/lib/supabase/server'
-import type { 
-  Assessment, 
-  AssessmentInsert, 
-  AssessmentUpdate, 
-  AssessmentData,
-  DiscResults,
-  SoftSkillsResults,
-  SjtResults,
-  Json
-} from '@/lib/supabase/types'
+import { supabase } from '../supabase/client'
+
+// Types for assessment data
+export interface DiscResults {
+  D: number
+  I: number
+  S: number
+  C: number
+  responses?: Record<string, string>
+}
+
+export interface SoftSkillsResults {
+  comunicacao: number
+  lideranca: number
+  trabalhoEmEquipe: number
+  resolucaoProblemas: number
+  adaptabilidade: number
+  [key: string]: number
+}
+
+export interface SjtResults {
+  responses: number[]
+  scores: number[]
+}
+
+export interface AssessmentData {
+  id?: string
+  user_id?: string
+  type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
+  status: 'in_progress' | 'completed' | 'abandoned'
+  disc_results?: DiscResults
+  soft_skills_results?: SoftSkillsResults
+  sjt_results?: SjtResults
+  progress_data?: any
+  created_at?: string
+  updated_at?: string
+  completed_at?: string
+}
 
 export interface SaveAssessmentParams {
-  id?: string
-  type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-  status?: 'in_progress' | 'completed'
-  disc_results?: DiscResults | null
-  soft_skills_results?: SoftSkillsResults | null
-  sjt_results?: SjtResults | null
+  assessmentData: Partial<AssessmentData>
+  userId: string
+  isUpdate?: boolean
 }
 
-export interface AssessmentListResponse {
-  assessments: Pick<Assessment, 'id' | 'type' | 'status' | 'created_at' | 'completed_at'>[]
-  pagination: {
-    total: number
-    page: number
-    limit: number
-  }
-}
-
-class AssessmentPersistenceService {
-  private readonly MAX_RETRIES = 3
-  private readonly RETRY_DELAY_BASE = 1000 // 1 segundo
-
+export class AssessmentPersistenceService {
+  private retryDelays = [1000, 2000, 4000] // Exponential backoff: 1s, 2s, 4s
+  
   /**
-   * Retry logic com exponential backoff
+   * Saves or updates an assessment with retry logic
    */
-  private async withRetry<T>(
-    operation: () => Promise<T>,
-    retries: number = this.MAX_RETRIES
-  ): Promise<T> {
-    try {
-      return await operation()
-    } catch (error) {
-      if (retries > 0) {
-        const delay = this.RETRY_DELAY_BASE * Math.pow(2, this.MAX_RETRIES - retries)
-        console.warn(`Assessment operation failed, retrying in ${delay}ms. Retries left: ${retries}`, error)
-        
-        await new Promise(resolve => setTimeout(resolve, delay))
-        return this.withRetry(operation, retries - 1)
-      }
-      
-      console.error('Assessment operation failed after all retries:', error)
-      throw error
+  async saveAssessment(params: SaveAssessmentParams): Promise<AssessmentData> {
+    const { assessmentData, userId, isUpdate = false } = params
+    
+    // Add user_id and timestamps
+    const dataToSave = {
+      ...assessmentData,
+      user_id: userId,
+      updated_at: new Date().toISOString(),
+      ...(assessmentData.status === 'completed' && !assessmentData.completed_at && {
+        completed_at: new Date().toISOString()
+      })
     }
-  }
 
-  /**
-   * Salva ou atualiza uma avaliação (auto-save capability)
-   */
-  async saveAssessment(params: SaveAssessmentParams, userId?: string): Promise<{ id: string; status: string; message: string }> {
-    return this.withRetry(async () => {
-      const client = userId ? createRouteHandlerClient() : supabase
-      
-      // Se não temos userId, pegamos do client (browser context)
-      let currentUserId = userId
-      if (!currentUserId) {
-        const { data: { user } } = await client.auth.getUser()
-        if (!user) {
-          throw new Error('User not authenticated')
-        }
-        currentUserId = user.id
-      }
-
-      const now = new Date().toISOString()
-      
-      if (params.id) {
-        // Atualizar avaliação existente
-        const updateData: AssessmentUpdate = {
-          type: params.type,
-          status: params.status || 'in_progress',
-          disc_results: params.disc_results as Json || null,
-          soft_skills_results: params.soft_skills_results as Json || null,
-          sjt_results: params.sjt_results as Json || null,
-          ...(params.status === 'completed' && { completed_at: now })
-        }
-
-        const { data, error } = await client
+    return this.executeWithRetry(async () => {
+      if (isUpdate && assessmentData.id) {
+        const { data, error } = await supabase
           .from('assessments')
-          .update(updateData)
-          .eq('id', params.id)
-          .eq('user_id', currentUserId)
+          .update(dataToSave)
+          .eq('id', assessmentData.id)
+          .eq('user_id', userId)
           .select()
           .single()
 
-        if (error) {
-          throw new Error(`Failed to update assessment: ${error.message}`)
-        }
-
-        return {
-          id: data.id,
-          status: 'success',
-          message: 'Assessment updated successfully'
-        }
+        if (error) throw error
+        return data
       } else {
-        // Criar nova avaliação
-        const insertData: AssessmentInsert = {
-          user_id: currentUserId!,
-          type: params.type,
-          status: params.status || 'in_progress',
-          disc_results: params.disc_results as Json || null,
-          soft_skills_results: params.soft_skills_results as Json || null,
-          sjt_results: params.sjt_results as Json || null,
-          created_at: now,
-          ...(params.status === 'completed' && { completed_at: now })
-        }
-
-        const { data, error } = await client
+        const { data, error } = await supabase
           .from('assessments')
-          .insert(insertData)
+          .insert(dataToSave)
           .select()
           .single()
 
-        if (error) {
-          throw new Error(`Failed to create assessment: ${error.message}`)
-        }
-
-        return {
-          id: data.id,
-          status: 'success',
-          message: 'Assessment created successfully'
-        }
+        if (error) throw error
+        return data
       }
     })
   }
 
   /**
-   * Lista todas as avaliações do usuário com paginação
+   * Updates assessment progress incrementally (for auto-save)
    */
-  async getAssessmentHistory(
-    userId?: string,
-    page: number = 1,
-    limit: number = 20
-  ): Promise<AssessmentListResponse> {
-    return this.withRetry(async () => {
-      const client = userId ? createRouteHandlerClient() : supabase
-      
-      // Se não temos userId, pegamos do client (browser context)
-      let currentUserId = userId
-      if (!currentUserId) {
-        const { data: { user } } = await client.auth.getUser()
-        if (!user) {
-          throw new Error('User not authenticated')
-        }
-        currentUserId = user.id
-      }
-
-      const offset = (page - 1) * limit
-
-      // Buscar total de registros
-      const { count, error: countError } = await client
+  async updateAssessmentProgress(
+    assessmentId: string,
+    progressData: any,
+    userId: string
+  ): Promise<AssessmentData> {
+    return this.executeWithRetry(async () => {
+      const { data, error } = await supabase
         .from('assessments')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', currentUserId)
-
-      if (countError) {
-        throw new Error(`Failed to count assessments: ${countError.message}`)
-      }
-
-      // Buscar avaliações paginadas
-      const { data, error } = await client
-        .from('assessments')
-        .select('id, type, status, created_at, completed_at')
-        .eq('user_id', currentUserId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1)
-
-      if (error) {
-        throw new Error(`Failed to fetch assessments: ${error.message}`)
-      }
-
-      return {
-        assessments: data || [],
-        pagination: {
-          total: count || 0,
-          page,
-          limit
-        }
-      }
-    })
-  }
-
-  /**
-   * Recupera uma avaliação específica por ID
-   */
-  async getAssessment(assessmentId: string, userId?: string): Promise<Assessment> {
-    return this.withRetry(async () => {
-      const client = userId ? createRouteHandlerClient() : supabase
-      
-      // Se não temos userId, pegamos do client (browser context)
-      let currentUserId = userId
-      if (!currentUserId) {
-        const { data: { user } } = await client.auth.getUser()
-        if (!user) {
-          throw new Error('User not authenticated')
-        }
-        currentUserId = user.id
-      }
-
-      const { data, error } = await client
-        .from('assessments')
-        .select('*')
-        .eq('id', assessmentId)
-        .eq('user_id', currentUserId)
-        .single()
-
-      if (error) {
-        throw new Error(`Failed to fetch assessment: ${error.message}`)
-      }
-
-      return data
-    })
-  }
-
-  /**
-   * Busca avaliação incompleta mais recente do usuário para resumir
-   */
-  async getIncompleteAssessment(userId?: string): Promise<Assessment | null> {
-    return this.withRetry(async () => {
-      const client = userId ? createRouteHandlerClient() : supabase
-      
-      // Se não temos userId, pegamos do client (browser context)
-      let currentUserId = userId
-      if (!currentUserId) {
-        const { data: { user } } = await client.auth.getUser()
-        if (!user) {
-          throw new Error('User not authenticated')
-        }
-        currentUserId = user.id
-      }
-
-      const { data, error } = await client
-        .from('assessments')
-        .select('*')
-        .eq('user_id', currentUserId)
-        .eq('status', 'in_progress')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (error) {
-        throw new Error(`Failed to fetch incomplete assessment: ${error.message}`)
-      }
-
-      return data
-    })
-  }
-
-  /**
-   * Atualiza apenas os resultados de uma avaliação específica
-   */
-  async updateAssessmentResults(
-    assessmentId: string, 
-    results: Partial<Pick<AssessmentData, 'disc_results' | 'soft_skills_results' | 'sjt_results'>>,
-    userId?: string
-  ): Promise<{ id: string; status: string; message: string }> {
-    return this.withRetry(async () => {
-      const client = userId ? createRouteHandlerClient() : supabase
-      
-      // Se não temos userId, pegamos do client (browser context)
-      let currentUserId = userId
-      if (!currentUserId) {
-        const { data: { user } } = await client.auth.getUser()
-        if (!user) {
-          throw new Error('User not authenticated')
-        }
-        currentUserId = user.id
-      }
-
-      const updateData: AssessmentUpdate = {
-        disc_results: results.disc_results as Json,
-        soft_skills_results: results.soft_skills_results as Json,
-        sjt_results: results.sjt_results as Json
-      }
-
-      const { data, error } = await client
-        .from('assessments')
-        .update(updateData)
-        .eq('id', assessmentId)
-        .eq('user_id', currentUserId)
-        .select()
-        .single()
-
-      if (error) {
-        throw new Error(`Failed to update assessment results: ${error.message}`)
-      }
-
-      return {
-        id: data.id,
-        status: 'success',
-        message: 'Assessment results updated successfully'
-      }
-    })
-  }
-
-  /**
-   * Marca uma avaliação como completa
-   */
-  async completeAssessment(assessmentId: string, userId?: string): Promise<{ id: string; status: string; message: string }> {
-    return this.withRetry(async () => {
-      const client = userId ? createRouteHandlerClient() : supabase
-      
-      // Se não temos userId, pegamos do client (browser context)
-      let currentUserId = userId
-      if (!currentUserId) {
-        const { data: { user } } = await client.auth.getUser()
-        if (!user) {
-          throw new Error('User not authenticated')
-        }
-        currentUserId = user.id
-      }
-
-      const { data, error } = await client
-        .from('assessments')
-        .update({ 
-          status: 'completed', 
-          completed_at: new Date().toISOString() 
+        .update({
+          progress_data: progressData,
+          updated_at: new Date().toISOString()
         })
         .eq('id', assessmentId)
-        .eq('user_id', currentUserId)
+        .eq('user_id', userId)
         .select()
         .single()
 
-      if (error) {
-        throw new Error(`Failed to complete assessment: ${error.message}`)
-      }
-
-      return {
-        id: data.id,
-        status: 'success',
-        message: 'Assessment completed successfully'
-      }
+      if (error) throw error
+      return data
     })
+  }
+
+  /**
+   * Gets incomplete assessment for a user
+   */
+  async getIncompleteAssessment(userId: string): Promise<AssessmentData | null> {
+    const { data, error } = await supabase
+      .from('assessments')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'in_progress')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) throw error
+    return data
+  }
+
+  /**
+   * Gets assessment by ID
+   */
+  async getAssessment(assessmentId: string, userId: string): Promise<AssessmentData | null> {
+    const { data, error } = await supabase
+      .from('assessments')
+      .select('*')
+      .eq('id', assessmentId)
+      .eq('user_id', userId)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') return null // Not found
+      throw error
+    }
+    return data
+  }
+
+  /**
+   * Lists assessments with filters and pagination
+   */
+  async listAssessments(params: {
+    userId: string
+    page?: number
+    limit?: number
+    type?: string
+    status?: string
+    dateFrom?: string
+    dateTo?: string
+  }): Promise<{ data: AssessmentData[]; count: number }> {
+    const { userId, page = 1, limit = 10, type, status, dateFrom, dateTo } = params
+    const offset = (page - 1) * limit
+
+    let query = supabase
+      .from('assessments')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+
+    if (type) query = query.eq('type', type)
+    if (status) query = query.eq('status', status)
+    if (dateFrom) query = query.gte('created_at', dateFrom)
+    if (dateTo) query = query.lte('created_at', dateTo)
+
+    const { data, error, count } = await query
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + limit - 1)
+
+    if (error) throw error
+    return { data: data || [], count: count || 0 }
+  }
+
+  /**
+   * Marks an assessment as abandoned
+   */
+  async abandonAssessment(assessmentId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('assessments')
+      .update({ 
+        status: 'abandoned',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', assessmentId)
+      .eq('user_id', userId)
+
+    if (error) throw error
+  }
+
+  /**
+   * Executes a function with exponential backoff retry logic
+   */
+  private async executeWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let lastError: Error
+
+    for (let attempt = 0; attempt <= this.retryDelays.length; attempt++) {
+      try {
+        return await fn()
+      } catch (error) {
+        lastError = error as Error
+        
+        // Don't retry if it's the last attempt
+        if (attempt === this.retryDelays.length) {
+          break
+        }
+
+        // Don't retry certain errors (auth, validation, etc.)
+        if (this.shouldNotRetry(error)) {
+          throw error
+        }
+
+        // Wait before retry
+        await new Promise(resolve => 
+          setTimeout(resolve, this.retryDelays[attempt])
+        )
+      }
+    }
+
+    throw lastError!
+  }
+
+  /**
+   * Determines if an error should not be retried
+   */
+  private shouldNotRetry(error: any): boolean {
+    // Don't retry authentication errors, validation errors, etc.
+    if (error?.code === 'PGRST301') return true // JWT expired
+    if (error?.code === 'PGRST116') return true // Not found
+    if (error?.code === '23505') return true // Unique constraint violation
+    if (error?.message?.includes('Row level security')) return true
+    
+    return false
   }
 }
 
-// Singleton instance
+// Export singleton instance
 export const assessmentService = new AssessmentPersistenceService()
-export default assessmentService 

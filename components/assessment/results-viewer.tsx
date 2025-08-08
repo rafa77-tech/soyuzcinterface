@@ -1,84 +1,56 @@
-'use client'
-
-import { Button } from '@/components/ui/button'
+import { AssessmentData } from '@/lib/services/assessment-service'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
-import { ArrowLeft, Calendar, Clock } from 'lucide-react'
-import type { Assessment } from '@/lib/supabase/types'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { ArrowLeft, Download, Calendar, Clock, BarChart3 } from 'lucide-react'
 
 interface ResultsViewerProps {
-  assessment: Assessment
+  assessment: AssessmentData
   onBack: () => void
+  onExport?: () => void
 }
 
-export function ResultsViewer({ assessment, onBack }: ResultsViewerProps) {
-  if (!assessment) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-4xl stellar-card">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-white mb-4">Resultados da Avaliação</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-gray-300">Nenhuma avaliação selecionada.</div>
-            <Button onClick={onBack} variant="outline" size="sm" className="mt-4">
-              <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
-
-  const calculateDuration = (created: string, completed: string) => {
-    const start = new Date(created)
-    const end = new Date(completed)
-    const durationMs = end.getTime() - start.getTime()
-    const durationMinutes = Math.round(durationMs / (1000 * 60))
-    
-    if (durationMinutes < 60) {
-      return `${durationMinutes} min`
-    } else {
-      const hours = Math.floor(durationMinutes / 60)
-      const minutes = durationMinutes % 60
-      return `${hours}h ${minutes}min`
+export function ResultsViewer({ assessment, onBack, onExport }: ResultsViewerProps) {
+  const getTypeDisplay = (type: string) => {
+    switch (type) {
+      case 'disc': return 'DISC'
+      case 'soft_skills': return 'Soft Skills'
+      case 'sjt': return 'Julgamento Situacional'
+      case 'complete': return 'Avaliação Completa'
+      default: return type
     }
   }
 
   const renderDiscResults = () => {
     if (!assessment.disc_results) return null
-    
-    const results = assessment.disc_results as any
+
+    const results = assessment.disc_results
     const total = results.D + results.I + results.S + results.C
     
     return (
-      <Card className="bg-gray-800/30 border-gray-700">
+      <Card className="stellar-card">
         <CardHeader>
-          <CardTitle className="text-lg text-white">Resultados DISC</CardTitle>
+          <CardTitle className="text-white flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Resultados DISC
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {Object.entries(results).map(([dimension, score]) => {
-            const percentage = ((score as number) / total) * 100
+          {Object.entries(results).map(([key, value]) => {
+            if (key === 'responses') return null
+            const percentage = total > 0 ? Math.round((value / total) * 100) : 0
             return (
-              <div key={dimension} className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-white font-medium">
-                    {dimension === 'D' ? 'Dominância' :
-                     dimension === 'I' ? 'Influência' :
-                     dimension === 'S' ? 'Estabilidade' : 'Conscienciosidade'}
-                  </span>
-                  <span className="text-gray-300">{Number(score)} ({percentage.toFixed(1)}%)</span>
+              <div key={key} className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-white font-medium">{key}</span>
+                  <span className="text-gray-300">{value} ({percentage}%)</span>
                 </div>
-                <Progress value={percentage} className="h-2" />
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full"
+                    style={{ width: `${percentage}%` }}
+                  />
+                </div>
               </div>
             )
           })}
@@ -89,40 +61,34 @@ export function ResultsViewer({ assessment, onBack }: ResultsViewerProps) {
 
   const renderSoftSkillsResults = () => {
     if (!assessment.soft_skills_results) return null
-    
-    const results = assessment.soft_skills_results as any
-    
-    const skillLabels = {
-      comunicacao: 'Comunicação',
-      lideranca: 'Liderança',
-      trabalhoEquipe: 'Trabalho em Equipe',
-      resolucaoProblemas: 'Resolução de Problemas',
-      adaptabilidade: 'Adaptabilidade',
-      criatividade: 'Criatividade',
-      gestaoTempo: 'Gestão de Tempo',
-      negociacao: 'Negociação'
-    }
+
+    const results = assessment.soft_skills_results
     
     return (
-      <Card className="bg-gray-800/30 border-gray-700">
+      <Card className="stellar-card">
         <CardHeader>
-          <CardTitle className="text-lg text-white">Resultados Soft Skills</CardTitle>
+          <CardTitle className="text-white flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Resultados Soft Skills
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {Object.entries(results).map(([skill, score]) => {
-            const percentage = ((score as number) / 10) * 100
-            return (
-              <div key={skill} className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-white font-medium">
-                    {skillLabels[skill as keyof typeof skillLabels] || skill}
-                  </span>
-                  <span className="text-gray-300">{Number(score)}/10</span>
-                </div>
-                <Progress value={percentage} className="h-2" />
+          {Object.entries(results).map(([key, value]) => (
+            <div key={key} className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-white font-medium capitalize">
+                  {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                </span>
+                <span className="text-gray-300">{value}/10</span>
               </div>
-            )
-          })}
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full"
+                  style={{ width: `${(value / 10) * 100}%` }}
+                />
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
     )
@@ -130,107 +96,115 @@ export function ResultsViewer({ assessment, onBack }: ResultsViewerProps) {
 
   const renderSjtResults = () => {
     if (!assessment.sjt_results) return null
-    
-    const results = assessment.sjt_results as number[]
-    const average = results.reduce((a, b) => a + b, 0) / results.length
-    const maxScore = 9 // Based on the scenario options
-    const percentage = (average / maxScore) * 100
+
+    const results = assessment.sjt_results
+    const averageScore = results.scores?.reduce((a, b) => a + b, 0) / results.scores?.length || 0
     
     return (
-      <Card className="bg-gray-800/30 border-gray-700">
+      <Card className="stellar-card">
         <CardHeader>
-          <CardTitle className="text-lg text-white">Resultados Julgamento Situacional</CardTitle>
+          <CardTitle className="text-white flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Resultados SJT
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-center">
             <div className="text-3xl font-bold text-white mb-2">
-              {average.toFixed(1)}/9.0
+              {Math.round(averageScore * 100)}%
             </div>
-            <div className="text-gray-300 mb-4">Pontuação Média</div>
-            <Progress value={percentage} className="h-3 mb-4" />
-            <div className="text-sm text-gray-400">
-              {percentage >= 80 ? 'Excelente' :
-               percentage >= 70 ? 'Muito Bom' :
-               percentage >= 60 ? 'Bom' :
-               percentage >= 50 ? 'Regular' : 'Precisa Melhorar'}
-            </div>
+            <div className="text-gray-400">Pontuação Média</div>
           </div>
           
-          <div className="mt-6">
-            <h4 className="text-white font-medium mb-3">Pontuações por Cenário:</h4>
-            <div className="grid gap-2">
-              {results.map((score, index) => (
-                <div key={index} className="flex justify-between items-center">
-                  <span className="text-gray-300">Cenário {index + 1}</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={(score / maxScore) * 100} className="h-2 w-20" />
-                    <span className="text-white font-medium w-8 text-right">{Number(score)}</span>
+          <div className="space-y-3">
+            <h4 className="text-white font-medium">Respostas por Cenário:</h4>
+            {results.responses?.map((response, index) => (
+              <div key={index} className="flex justify-between items-center">
+                <span className="text-gray-300">Cenário {index + 1}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-white">{response}/10</span>
+                  <div className="w-20 bg-gray-700 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full"
+                      style={{ width: `${(response / 10) * 100}%` }}
+                    />
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
     )
   }
 
-  const getAssessmentTitle = () => {
-    switch (assessment.type) {
-      case 'complete':
-        return 'Avaliação Completa'
-      case 'disc':
-        return 'Avaliação DISC'
-      case 'soft_skills':
-        return 'Avaliação de Soft Skills'
-      case 'sjt':
-        return 'Julgamento Situacional'
-      default:
-        return 'Resultados da Avaliação'
-    }
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-4xl stellar-card">
-        <CardHeader>
-          <div className="flex items-center gap-4 mb-4">
-            <Button onClick={onBack} variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Voltar
-            </Button>
-          </div>
-          
-          <CardTitle className="text-2xl font-bold text-white mb-4">
-            {getAssessmentTitle()}
-          </CardTitle>
-          
-          <div className="flex gap-6 text-sm text-gray-400">
-            <div className="flex items-center gap-1">
-              <Calendar className="h-4 w-4" />
-              <span>Concluída: {formatDate(assessment.completed_at!)}</span>
+    <div className="min-h-screen p-4 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={onBack}
+            variant="outline"
+            className="border-gray-600 text-gray-300 hover:bg-gray-800"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Voltar
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-white">
+              {getTypeDisplay(assessment.type)}
+            </h1>
+            <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
+              <div className="flex items-center gap-1">
+                <Calendar className="h-4 w-4" />
+                {new Date(assessment.created_at!).toLocaleDateString('pt-BR')}
+              </div>
+              {assessment.completed_at && (
+                <div className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  Concluída em {new Date(assessment.completed_at).toLocaleDateString('pt-BR')}
+                </div>
+              )}
+              <Badge className="bg-green-500/20 text-green-400">
+                {assessment.status === 'completed' ? 'Concluída' : 'Em Andamento'}
+              </Badge>
             </div>
-            <div className="flex items-center gap-1">
-              <Clock className="h-4 w-4" />
-              <span>Duração: {calculateDuration(assessment.created_at, assessment.completed_at!)}</span>
-            </div>
           </div>
-        </CardHeader>
+        </div>
 
-        <CardContent className="space-y-6">
-          {assessment.type === 'complete' && (
-            <div className="space-y-6">
-              {renderDiscResults()}
-              {renderSoftSkillsResults()}
-              {renderSjtResults()}
-            </div>
-          )}
-          
-          {assessment.type === 'disc' && renderDiscResults()}
-          {assessment.type === 'soft_skills' && renderSoftSkillsResults()}
-          {assessment.type === 'sjt' && renderSjtResults()}
-        </CardContent>
-      </Card>
+        {onExport && (
+          <Button
+            onClick={onExport}
+            variant="outline"
+            className="border-purple-500 text-purple-400 hover:bg-purple-500/10"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Exportar
+          </Button>
+        )}
+      </div>
+
+      {/* Results */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {renderDiscResults()}
+        {renderSoftSkillsResults()}
+        {renderSjtResults()}
+      </div>
+
+      {/* Raw Data (for debugging - can be hidden in production) */}
+      {process.env.NODE_ENV === 'development' && (
+        <Card className="stellar-card">
+          <CardHeader>
+            <CardTitle className="text-white">Dados Brutos (Debug)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs text-gray-400 overflow-auto">
+              {JSON.stringify(assessment, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

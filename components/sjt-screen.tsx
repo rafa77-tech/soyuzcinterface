@@ -6,8 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
-import { SavingIndicator } from '@/components/ui/saving-indicator'
 import { useAssessmentAutoSave } from '@/hooks/use-assessment-autosave'
+import { SaveIndicator } from '@/components/assessment/save-indicator'
 
 interface SJTScreenProps {
   onNext: () => void
@@ -55,59 +55,54 @@ export function SJTScreen({ onNext, onResults }: SJTScreenProps) {
   const [answers, setAnswers] = useState<number[]>([])
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null)
 
-  const { 
-    saveProgress, 
-    saveFinalResults, 
-    loadIncompleteAssessment,
-    isSaving, 
-    error,
-    lastSaved 
-  } = useAssessmentAutoSave({
-    assessmentType: 'sjt',
-    debounceMs: 500,
-    enableLocalBackup: true
+  // Use the new auto-save hook
+  const { autoSaveState, debouncedSave, completeAssessment, retryManual } = useAssessmentAutoSave({
+    assessmentType: 'sjt'
   })
-
-  // Carregar dados salvos ao montar o componente
-  useEffect(() => {
-    const loadSavedData = async () => {
-      try {
-        const savedAssessment = await loadIncompleteAssessment()
-        if (savedAssessment?.sjt_results) {
-          setAnswers(savedAssessment.sjt_results)
-          // Definir cenário atual baseado no número de respostas
-          const savedProgress = savedAssessment.sjt_results.length
-          if (savedProgress < scenarios.length) {
-            setCurrentScenario(savedProgress)
-          }
-        }
-      } catch (error) {
-        console.warn('Falha ao carregar dados salvos:', error)
-      }
-    }
-
-    loadSavedData()
-  }, [loadIncompleteAssessment])
 
   const handleNext = async () => {
     if (selectedAnswer !== null) {
       const newAnswers = [...answers, selectedAnswer]
       setAnswers(newAnswers)
       
-      // Immediate auto-save after answer selection
-      saveProgress(null, currentScenario + 1, { sjt_results: newAnswers })
-      
       if (currentScenario < scenarios.length - 1) {
         setCurrentScenario(currentScenario + 1)
         setSelectedAnswer(null)
+        
+        // Auto-save progress with new hook
+        debouncedSave({
+          type: 'sjt',
+          status: 'in_progress',
+          progress_data: {
+            currentScenario: currentScenario + 1,
+            answers: newAnswers,
+            timestamp: new Date().toISOString()
+          }
+        })
       } else {
         try {
-          // Save final results
-          await saveFinalResults({ sjt_results: newAnswers })
+          // Convert answers to scores and save final results
+          const scores = newAnswers.map(score => score / 10) // Normalize to 0-1 range
+          
+          await completeAssessment({
+            type: 'sjt',
+            status: 'completed',
+            sjt_results: {
+              responses: newAnswers,
+              scores: scores
+            },
+            progress_data: {
+              currentScenario: scenarios.length,
+              answers: newAnswers,
+              completed: true,
+              timestamp: new Date().toISOString()
+            }
+          })
+          
           onResults(newAnswers)
           onNext()
         } catch (error) {
-          console.error('Error saving final results:', error)
+          console.error('Error saving final SJT results:', error)
           // Continue even with save error - UX continuity
           onResults(newAnswers)
           onNext()
@@ -125,8 +120,9 @@ export function SJTScreen({ onNext, onResults }: SJTScreenProps) {
           <div className="flex justify-between items-center mb-4">
             <CardTitle className="text-2xl font-bold text-white">Julgamento Situacional</CardTitle>
             <div className="flex items-center gap-4">
-              <SavingIndicator 
-                status={isSaving ? 'saving' : error ? 'error' : lastSaved ? 'saved' : 'idle'} 
+              <SaveIndicator 
+                autoSaveState={autoSaveState}
+                onRetryManual={retryManual}
                 className="text-xs"
               />
               <span className="text-sm text-gray-400">

@@ -1,149 +1,114 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@/lib/supabase/server'
-import assessmentService from '@/lib/services/assessment-service'
+import { assessmentService } from '../../../../lib/services/assessment-service'
+import { 
+  authenticateApiRequest, 
+  validateUUIDParam, 
+  createErrorResponse, 
+  createSuccessResponse 
+} from '../../../../lib/api/auth-utils'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Verificar autenticação
-    const supabase = createRouteHandlerClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Valid authentication required' },
-        { status: 401 }
-      )
+    // Authenticate user
+    const authResult = await authenticateApiRequest(request)
+    if ('error' in authResult) {
+      return authResult.error
     }
 
-    const { id: assessmentId } = await params
+    const { userId } = authResult
+    const { id: assessmentId } = await context.params
 
-    // Validar formato do ID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    if (!uuidRegex.test(assessmentId)) {
-      return NextResponse.json(
-        { 
-          error: 'Invalid assessment ID format',
-          message: 'Assessment ID must be a valid UUID'
-        },
-        { status: 400 }
-      )
+    // Validate UUID format
+    const validationError = validateUUIDParam(assessmentId, 'assessment ID')
+    if (validationError) {
+      return validationError
     }
 
-    // Buscar avaliação específica
-    const assessment = await assessmentService.getAssessment(assessmentId, user.id)
+    // Get assessment
+    const assessment = await assessmentService.getAssessment(assessmentId, userId)
 
-    return NextResponse.json(assessment, { status: 200 })
-    
+    if (!assessment) {
+      return createErrorResponse('Assessment not found', 404)
+    }
+
+    return createSuccessResponse(assessment)
+
   } catch (error) {
-    console.error('Error in GET /api/assessment/[id]:', error)
-
-    // Se o erro for sobre assessment não encontrado, retornar 404
-    if (error instanceof Error && error.message.includes('Failed to fetch assessment')) {
-      return NextResponse.json(
-        { 
-          error: 'Assessment not found',
-          message: 'The requested assessment does not exist or you do not have permission to access it'
-        },
-        { status: 404 }
-      )
-    }
-    
-    return NextResponse.json(
-      { 
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error occurred'
-      },
-      { status: 500 }
-    )
+    console.error('Assessment get error:', error)
+    return createErrorResponse('Internal server error', 500)
   }
 }
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Verificar autenticação
-    const supabase = createRouteHandlerClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Valid authentication required' },
-        { status: 401 }
-      )
+    // Authenticate user
+    const authResult = await authenticateApiRequest(request)
+    if ('error' in authResult) {
+      return authResult.error
     }
 
-    const { id: assessmentId } = await params
-
-    // Validar formato do ID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    if (!uuidRegex.test(assessmentId)) {
-      return NextResponse.json(
-        { 
-          error: 'Invalid assessment ID format',
-          message: 'Assessment ID must be a valid UUID'
-        },
-        { status: 400 }
-      )
-    }
-
+    const { userId } = authResult
+    const { id: assessmentId } = await context.params
     const body = await request.json()
-    
-    // Verificar se é uma operação de conclusão
-    if (body.action === 'complete') {
-      const result = await assessmentService.completeAssessment(assessmentId, user.id)
-      return NextResponse.json(result, { status: 200 })
+
+    // Validate UUID format
+    const validationError = validateUUIDParam(assessmentId, 'assessment ID')
+    if (validationError) {
+      return validationError
     }
 
-    // Atualizar resultados parciais
-    const { disc_results, soft_skills_results, sjt_results } = body
-    const results: any = {}
-    
-    if (disc_results !== undefined) results.disc_results = disc_results
-    if (soft_skills_results !== undefined) results.soft_skills_results = soft_skills_results
-    if (sjt_results !== undefined) results.sjt_results = sjt_results
+    // Update assessment
+    const updatedAssessment = await assessmentService.saveAssessment({
+      assessmentData: { id: assessmentId, ...body },
+      userId,
+      isUpdate: true
+    })
 
-    if (Object.keys(results).length === 0) {
-      return NextResponse.json(
-        { 
-          error: 'No valid results provided',
-          message: 'Please provide disc_results, soft_skills_results, or sjt_results to update'
-        },
-        { status: 400 }
-      )
-    }
+    return createSuccessResponse(updatedAssessment)
 
-    const result = await assessmentService.updateAssessmentResults(assessmentId, results, user.id)
-
-    return NextResponse.json(result, { status: 200 })
-    
   } catch (error) {
-    console.error('Error in PATCH /api/assessment/[id]:', error)
-
-    // Se o erro for sobre assessment não encontrado, retornar 404
-    if (error instanceof Error && (
-      error.message.includes('Failed to update assessment') ||
-      error.message.includes('Failed to complete assessment')
-    )) {
-      return NextResponse.json(
-        { 
-          error: 'Assessment not found',
-          message: 'The requested assessment does not exist or you do not have permission to access it'
-        },
-        { status: 404 }
-      )
-    }
-    
-    return NextResponse.json(
-      { 
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error occurred'
-      },
-      { status: 500 }
-    )
+    console.error('Assessment update error:', error)
+    return createErrorResponse('Internal server error', 500)
   }
-} 
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    // Authenticate user
+    const authResult = await authenticateApiRequest(request)
+    if ('error' in authResult) {
+      return authResult.error
+    }
+
+    const { userId } = authResult
+    const { id: assessmentId } = await context.params
+
+    // Validate UUID format
+    const validationError = validateUUIDParam(assessmentId, 'assessment ID')
+    if (validationError) {
+      return validationError
+    }
+
+    // Mark assessment as abandoned
+    await assessmentService.abandonAssessment(assessmentId, userId)
+
+    return createSuccessResponse(
+      null, 
+      200, 
+      'Assessment marked as abandoned'
+    )
+
+  } catch (error) {
+    console.error('Assessment abandon error:', error)
+    return createErrorResponse('Internal server error', 500)
+  }
+}

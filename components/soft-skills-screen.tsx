@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Slider } from '@/components/ui/slider'
 import { Label } from '@/components/ui/label'
-import { SavingIndicator } from '@/components/ui/saving-indicator'
 import { useAssessmentAutoSave } from '@/hooks/use-assessment-autosave'
+import { SaveIndicator } from '@/components/assessment/save-indicator'
 
 interface SoftSkillsScreenProps {
   onNext: () => void
@@ -16,12 +16,9 @@ interface SoftSkillsScreenProps {
 const skills = [
   { key: 'comunicacao', label: 'Comunicação', description: 'Capacidade de expressar ideias claramente' },
   { key: 'lideranca', label: 'Liderança', description: 'Habilidade para guiar e inspirar equipes' },
-  { key: 'trabalhoEquipe', label: 'Trabalho em Equipe', description: 'Colaboração efetiva com colegas' },
+  { key: 'trabalhoEmEquipe', label: 'Trabalho em Equipe', description: 'Colaboração efetiva com colegas' },
   { key: 'resolucaoProblemas', label: 'Resolução de Problemas', description: 'Encontrar soluções criativas e eficazes' },
-  { key: 'adaptabilidade', label: 'Adaptabilidade', description: 'Flexibilidade diante de mudanças' },
-  { key: 'criatividade', label: 'Criatividade', description: 'Capacidade de inovar e pensar fora da caixa' },
-  { key: 'gestaoTempo', label: 'Gestão de Tempo', description: 'Organização e priorização de tarefas' },
-  { key: 'negociacao', label: 'Negociação', description: 'Habilidade para alcançar acordos benéficos' }
+  { key: 'adaptabilidade', label: 'Adaptabilidade', description: 'Flexibilidade diante de mudanças' }
 ]
 
 export function SoftSkillsScreen({ onNext, onResults }: SoftSkillsScreenProps) {
@@ -29,73 +26,61 @@ export function SoftSkillsScreen({ onNext, onResults }: SoftSkillsScreenProps) {
     skills.reduce((acc, skill) => ({ ...acc, [skill.key]: 5 }), {})
   )
 
-  const { 
-    saveProgress, 
-    saveFinalResults, 
-    loadIncompleteAssessment,
-    isSaving, 
-    error,
-    lastSaved 
-  } = useAssessmentAutoSave({
-    assessmentType: 'soft_skills',
-    debounceMs: 500,
-    enableLocalBackup: true
+  // Use the new auto-save hook
+  const { autoSaveState, debouncedSave, completeAssessment, retryManual } = useAssessmentAutoSave({
+    assessmentType: 'soft_skills'
   })
-
-  // Carregar dados salvos ao montar o componente
-  useEffect(() => {
-    const loadSavedData = async () => {
-      try {
-        const savedAssessment = await loadIncompleteAssessment()
-        if (savedAssessment?.soft_skills_results) {
-          setSkillLevels(savedAssessment.soft_skills_results)
-        }
-      } catch (error) {
-        console.warn('Falha ao carregar dados salvos:', error)
-      }
-    }
-
-    loadSavedData()
-  }, [loadIncompleteAssessment])
 
   const handleSkillChange = (skillKey: string, value: number[]) => {
     const newSkillLevels = { ...skillLevels, [skillKey]: value[0] }
     setSkillLevels(newSkillLevels)
     
-    // Auto-save with debounce - proper format conversion to match SoftSkillsResults
+    // Auto-save with debounce using the new hook
     const softSkillsResults = {
       comunicacao: newSkillLevels.comunicacao || 5,
       lideranca: newSkillLevels.lideranca || 5,
-      trabalhoEquipe: newSkillLevels.trabalhoEquipe || 5,
+      trabalhoEmEquipe: newSkillLevels.trabalhoEmEquipe || 5,
       resolucaoProblemas: newSkillLevels.resolucaoProblemas || 5,
-      adaptabilidade: newSkillLevels.adaptabilidade || 5,
-      criatividade: newSkillLevels.criatividade || 5,
-      gestaoTempo: newSkillLevels.gestaoTempo || 5,
-      negociacao: newSkillLevels.negociacao || 5,
+      adaptabilidade: newSkillLevels.adaptabilidade || 5
     }
     
-    saveProgress(null, undefined, { soft_skills_results: softSkillsResults })
+    debouncedSave({
+      type: 'soft_skills',
+      status: 'in_progress',
+      soft_skills_results: softSkillsResults,
+      progress_data: {
+        skillLevels: newSkillLevels,
+        timestamp: new Date().toISOString()
+      }
+    })
   }
 
   const handleSubmit = async () => {
     try {
-      // Save final results immediately - proper format conversion to match SoftSkillsResults
       const softSkillsResults = {
         comunicacao: skillLevels.comunicacao || 5,
         lideranca: skillLevels.lideranca || 5,
-        trabalhoEquipe: skillLevels.trabalhoEquipe || 5,
+        trabalhoEmEquipe: skillLevels.trabalhoEmEquipe || 5,
         resolucaoProblemas: skillLevels.resolucaoProblemas || 5,
-        adaptabilidade: skillLevels.adaptabilidade || 5,
-        criatividade: skillLevels.criatividade || 5,
-        gestaoTempo: skillLevels.gestaoTempo || 5,
-        negociacao: skillLevels.negociacao || 5,
+        adaptabilidade: skillLevels.adaptabilidade || 5
       }
-      await saveFinalResults({ soft_skills_results: softSkillsResults })
+      
+      await completeAssessment({
+        type: 'soft_skills',
+        status: 'completed',
+        soft_skills_results: softSkillsResults,
+        progress_data: {
+          skillLevels,
+          completed: true,
+          timestamp: new Date().toISOString()
+        }
+      })
+      
       onResults(skillLevels)
       onNext()
     } catch (error) {
       console.error('Erro ao salvar resultados finais:', error)
-      // Continuar mesmo com erro de salvamento
+      // Continue even with save error
       onResults(skillLevels)
       onNext()
     }
@@ -109,8 +94,9 @@ export function SoftSkillsScreen({ onNext, onResults }: SoftSkillsScreenProps) {
             <CardTitle className="text-2xl font-bold text-white">
               Autoavaliação de Soft Skills
             </CardTitle>
-            <SavingIndicator 
-              status={isSaving ? 'saving' : error ? 'error' : lastSaved ? 'saved' : 'idle'} 
+            <SaveIndicator 
+              autoSaveState={autoSaveState}
+              onRetryManual={retryManual}
               className="text-xs"
             />
           </div>
