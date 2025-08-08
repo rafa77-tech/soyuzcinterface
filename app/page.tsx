@@ -164,10 +164,7 @@ export default function Home() {
   return (
     <main className="min-h-screen">
       {showHistory && !selectedAssessment && (
-        <AssessmentHistory 
-          onBack={handleBackToMain}
-          onViewResults={handleViewResults}
-        />
+        <AssessmentHistory />
       )}
       
       {selectedAssessment && (

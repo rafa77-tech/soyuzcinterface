@@ -59,7 +59,7 @@ export function ResultsViewer({ assessment, onBack }: ResultsViewerProps) {
                      dimension === 'I' ? 'Influência' :
                      dimension === 'S' ? 'Estabilidade' : 'Conscienciosidade'}
                   </span>
-                  <span className="text-gray-300">{score} ({percentage.toFixed(1)}%)</span>
+                  <span className="text-gray-300">{Number(score)} ({percentage.toFixed(1)}%)</span>
                 </div>
                 <Progress value={percentage} className="h-2" />
               </div>
@@ -100,7 +100,7 @@ export function ResultsViewer({ assessment, onBack }: ResultsViewerProps) {
                   <span className="text-white font-medium">
                     {skillLabels[skill as keyof typeof skillLabels] || skill}
                   </span>
-                  <span className="text-gray-300">{score}/10</span>
+                  <span className="text-gray-300">{Number(score)}/10</span>
                 </div>
                 <Progress value={percentage} className="h-2" />
               </div>
@@ -147,7 +147,7 @@ export function ResultsViewer({ assessment, onBack }: ResultsViewerProps) {
                   <span className="text-gray-300">Cenário {index + 1}</span>
                   <div className="flex items-center gap-2">
                     <Progress value={(score / maxScore) * 100} className="h-2 w-20" />
-                    <span className="text-white font-medium w-8 text-right">{score}</span>
+                    <span className="text-white font-medium w-8 text-right">{Number(score)}</span>
                   </div>
                 </div>
               ))}

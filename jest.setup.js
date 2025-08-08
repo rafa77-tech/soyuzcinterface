@@ -96,36 +96,29 @@ global.crypto = {
   getRandomValues: (arr) => crypto.getRandomValues(arr),
 }
 
-// Mock Request and Response for Next.js API routes
-global.Request = class MockRequest {
-  constructor(url, options = {}) {
-    this.url = url
-    this.method = options.method || 'GET'
-    this.headers = new Map(Object.entries(options.headers || {}))
-    this.body = options.body
+// Enhanced fetch mocking for API tests
+beforeEach(() => {
+  // Reset fetch mock before each test
+  if (global.fetch && global.fetch.mockClear) {
+    global.fetch.mockClear()
   }
-  
-  async json() {
-    if (this.body && typeof this.body === 'string') {
-      return JSON.parse(this.body)
-    }
-    return this.body
-  }
-  
-  header(name) {
-    return this.headers.get(name.toLowerCase())
-  }
-}
+})
 
-global.Response = class MockResponse {
-  constructor(body, options = {}) {
-    this.body = body
-    this.status = options.status || 200
-    this.statusText = options.statusText || 'OK'
-    this.headers = new Map(Object.entries(options.headers || {}))
-  }
-  
-  async json() {
-    return this.body
-  }
-}
+// Mock NextRequest for API route testing
+jest.mock('next/server', () => ({
+  NextRequest: jest.fn().mockImplementation((url, options = {}) => ({
+    url,
+    method: options.method || 'GET',
+    headers: new Map(Object.entries(options.headers || {})),
+    json: jest.fn(),
+    text: jest.fn(),
+    formData: jest.fn(),
+  })),
+  NextResponse: {
+    json: jest.fn((data, options = {}) => ({
+      status: options.status || 200,
+      json: () => Promise.resolve(data),
+    })),
+    redirect: jest.fn(),
+  },
+}))

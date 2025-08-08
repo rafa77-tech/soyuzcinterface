@@ -2,13 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
 import assessmentService from '@/lib/services/assessment-service'
 
-interface RouteParams {
-  params: {
-    id: string
-  }
-}
-
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     // Verificar autenticação
     const supabase = createRouteHandlerClient()
@@ -21,7 +18,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    const assessmentId = params.id
+    const { id: assessmentId } = await params
 
     // Validar formato do ID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -64,7 +61,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     // Verificar autenticação
     const supabase = createRouteHandlerClient()
@@ -77,7 +77,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    const assessmentId = params.id
+    const { id: assessmentId } = await params
 
     // Validar formato do ID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

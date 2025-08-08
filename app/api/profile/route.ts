@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { createRouteHandlerClient } from '@/lib/supabase/server'
 import * as z from 'zod'
 import { validateCRM } from '@/lib/utils'
 
@@ -15,7 +14,7 @@ const profileUpdateSchema = z.object({
 
 export async function GET() {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    const supabase = createRouteHandlerClient()
     
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
@@ -55,7 +54,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    const supabase = createRouteHandlerClient()
     
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
