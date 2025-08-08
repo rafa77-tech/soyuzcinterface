@@ -150,7 +150,7 @@ export function useAssessmentAutoSave({
       // Retry logic with exponential backoff (max 3 attempts)
       if (retryCount < 2) {
         const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s, 4s
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
           performAutoSave(progress, retryCount + 1)
         }, delay)
         return

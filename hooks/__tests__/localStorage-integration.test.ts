@@ -37,9 +37,6 @@ Object.defineProperty(window, 'localStorage', {
   value: mockLocalStorage,
 })
 
-// Mock timers
-jest.useFakeTimers()
-
 describe('localStorage Integration Tests', () => {
   const mockUser = {
     id: 'test-user-id',
@@ -48,6 +45,7 @@ describe('localStorage Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    jest.useFakeTimers()
     mockLocalStorage.clear()
     mockUseAuth.mockReturnValue({
       user: mockUser,

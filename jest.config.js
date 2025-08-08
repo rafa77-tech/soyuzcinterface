@@ -7,6 +7,9 @@ const createJestConfig = nextJest({
 const customJestConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testEnvironment: 'jsdom',
+  fakeTimers: {
+    enableGlobally: false, // Let individual tests control their timer setup
+  },
   testPathIgnorePatterns: ['/node_modules/', '/.next/', '/__tests__/e2e/'],
   collectCoverageFrom: [
     'components/**/*.{js,jsx,ts,tsx}',

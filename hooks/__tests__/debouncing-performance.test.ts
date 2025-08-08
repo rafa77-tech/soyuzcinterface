@@ -24,9 +24,6 @@ Object.defineProperty(window, 'localStorage', {
   value: mockLocalStorage,
 })
 
-// Mock timers for precise control
-jest.useFakeTimers()
-
 describe('Debouncing Performance Tests', () => {
   const mockUser = {
     id: 'test-user-id',
@@ -35,6 +32,7 @@ describe('Debouncing Performance Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    jest.useFakeTimers()
     mockUseAuth.mockReturnValue({
       user: mockUser,
       signIn: jest.fn(),
@@ -48,6 +46,8 @@ describe('Debouncing Performance Tests', () => {
       ok: true,
       json: () => Promise.resolve({ id: 'test-assessment-id' }),
     } as Response)
+    
+    mockLocalStorage.getItem.mockReturnValue(null)
   })
 
   afterEach(() => {
@@ -140,12 +140,9 @@ describe('Debouncing Performance Tests', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            id: undefined,
             type: 'soft_skills',
             status: 'in_progress',
-            disc_results: null,
             soft_skills_results: testData2.soft_skills_results,
-            sjt_results: null,
           }),
         })
       })
@@ -188,12 +185,9 @@ describe('Debouncing Performance Tests', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            id: undefined,
             type: 'soft_skills',
             status: 'in_progress',
-            disc_results: null,
             soft_skills_results: { comunicacao: rapidUpdates },
-            sjt_results: null,
           }),
         })
       })
