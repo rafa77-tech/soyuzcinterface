@@ -218,10 +218,8 @@ describe('AssessmentPersistenceService', () => {
         type: 'complete'
       })
 
-      // Fast-forward through all retries
-      await jest.advanceTimersByTimeAsync(1000)
-      await jest.advanceTimersByTimeAsync(2000)
-      await jest.advanceTimersByTimeAsync(4000)
+      // Fast-forward through all retries  
+      await jest.advanceTimersByTimeAsync(7000) // Total time for all retries
 
       await expect(resultPromise).rejects.toThrow('Failed to create assessment: Persistent error')
       expect(console.error).toHaveBeenCalledWith('Assessment operation failed after all retries:', expect.any(Error))
