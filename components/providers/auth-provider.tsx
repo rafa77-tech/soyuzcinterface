@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     getSession()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event, session) => {
         setSession(session)
         setUser(session?.user ?? null)
 
@@ -128,8 +128,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .from('profiles')
           .insert([{
             id: data.user.id,
-            email: data.user.email!,
-            ...profileData
+            ...profileData,
+            email: data.user.email!
           }])
 
         if (profileError) {

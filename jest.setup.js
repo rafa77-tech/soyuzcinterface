@@ -36,3 +36,34 @@ global.ResizeObserver = jest.fn().mockImplementation(() => ({
 // Mock environment variables
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://mock-project.supabase.co'
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'mock-anon-key'
+
+// --- ADIÇÃO 1: mock do Supabase (evita timeout/erros no AuthProvider)
+jest.mock('@supabase/supabase-js', () => {
+  return {
+    createClient: () => ({
+      auth: {
+        getSession: jest.fn().mockResolvedValue({ data: { session: null } }),
+        onAuthStateChange: jest.fn().mockReturnValue({
+          data: { subscription: { unsubscribe: jest.fn() } },
+        }),
+        signInWithPassword: jest.fn().mockResolvedValue({
+          data: { user: { id: 'u1' } }, error: null,
+        }),
+        signUp: jest.fn().mockResolvedValue({
+          data: { user: { id: 'u2' } }, error: null,
+        }),
+        signOut: jest.fn().mockResolvedValue({ error: null }),
+      },
+    }),
+  };
+});
+
+// --- ADIÇÃO 2: mock de next/font/google (evita erro do Inter() no Jest)
+jest.mock('next/font/google', () => ({
+  Inter: () => ({ className: 'inter' }),
+}));
+
+// --- ADIÇÃO 3 (opcional, só se seus testes tocam código server): next/headers
+jest.mock('next/headers', () => ({
+  cookies: () => ({ get: () => undefined, set: () => {}, delete: () => {} }),
+}));

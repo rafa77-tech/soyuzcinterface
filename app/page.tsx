@@ -12,11 +12,13 @@ import { AIChatWidget } from '@/components/ai-chat-widget'
 export default function Home() {
   const [currentScreen, setCurrentScreen] = useState(0)
   const [userData, setUserData] = useState({
+    id: '',
     name: '',
     email: '',
     phone: '',
-    position: '',
-    company: ''
+    crm: '',
+    specialty: '',
+    isNewUser: true
   })
   const [discResults, setDiscResults] = useState({
     D: 0,
@@ -45,16 +47,19 @@ export default function Home() {
     />,
     <MiniDiscScreen 
       key="disc" 
+      userData={userData}
       onNext={() => setCurrentScreen(3)} 
       onResults={setDiscResults}
     />,
     <SoftSkillsScreen 
       key="softskills" 
+      userData={userData}
       onNext={() => setCurrentScreen(4)} 
       onResults={setSoftSkillsResults}
     />,
     <SJTScreen 
       key="sjt" 
+      userData={userData}
       onNext={() => setCurrentScreen(5)} 
       onResults={setSjtResults}
     />,

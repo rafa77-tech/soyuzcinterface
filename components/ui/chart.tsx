@@ -155,7 +155,7 @@ const ChartTooltipContent = React.forwardRef<
         {tooltipLabel}
         <div className="grid gap-1.5">
           {payload.map((item, index) => {
-            const key = `${nameKey || item.name || item.dataKey || "value"}`
+            const _key = `${nameKey || item.name || item.dataKey || "value"}`
             const itemConfig = getPayloadConfigFromPayload(payload, item.dataKey, item)
             const indicatorColor = color || item.payload.fill || item.color
 
@@ -234,7 +234,7 @@ const ChartLegendContent = React.forwardRef<
       nameKey?: string
     }
 >(
-  ({ className, hideIcon = false, payload, verticalAlign = "bottom", nameKey }, ref) => {
+  ({ className, hideIcon = false, payload, verticalAlign: _verticalAlign = "bottom", nameKey }, ref) => {
     if (!payload?.length) {
       return null
     }
@@ -245,7 +245,7 @@ const ChartLegendContent = React.forwardRef<
         className={cn("flex items-center justify-center gap-4", className)}
       >
         {payload.map((item) => {
-          const key = `${nameKey || item.value || item.dataKey || "value"}`
+          const _key = `${nameKey || item.value || item.dataKey || "value"}`
           const itemConfig = getPayloadConfigFromPayload([], item.dataKey, item)
 
           return (

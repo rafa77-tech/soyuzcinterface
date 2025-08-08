@@ -64,19 +64,25 @@ export function AuthScreen({ onNext, onUserData }: AuthScreenProps) {
         const result = await signIn(formData.email, formData.password)
         if (result.error) {
           setErrors({ auth: result.error.message })
+          setIsLoading(false)
           return
         }
       } else {
         // Validate form for signup
+        console.log('Form data before validation:', formData)
         const validation = profileSchema.safeParse(formData)
+        console.log('Validation result:', validation)
         if (!validation.success) {
+          console.log('Validation errors:', validation.error.errors)
           const fieldErrors: Record<string, string> = {}
           validation.error.errors.forEach(err => {
             if (err.path[0]) {
               fieldErrors[err.path[0] as string] = err.message
             }
           })
+          console.log('Field errors:', fieldErrors)
           setErrors(fieldErrors)
+          setIsLoading(false)
           return
         }
 
@@ -84,6 +90,7 @@ export function AuthScreen({ onNext, onUserData }: AuthScreenProps) {
         const result = await signUp(formData.email, password, profileData)
         if (result.error) {
           setErrors({ auth: result.error.message })
+          setIsLoading(false)
           return
         }
       }
@@ -99,7 +106,7 @@ export function AuthScreen({ onNext, onUserData }: AuthScreenProps) {
         })
         onNext()
       }
-    } catch (error) {
+    } catch {
       setErrors({ auth: 'Erro inesperado. Tente novamente.' })
     } finally {
       setIsLoading(false)

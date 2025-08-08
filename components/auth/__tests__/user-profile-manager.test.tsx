@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { UserProfileManager } from '../user-profile-manager'
 import { useAuth } from '@/components/providers/auth-provider'

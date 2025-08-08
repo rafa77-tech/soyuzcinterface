@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { createRouteHandlerClient } from '@/lib/supabase/server'
+// import { cookies } from 'next/headers' // Removido: não usado
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    const supabase = createRouteHandlerClient()
     
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    if (!ALLOWED_TYPES.includes(file.type as typeof ALLOWED_TYPES[number])) {
       return NextResponse.json(
         { error: 'Invalid file type. Only JPEG, PNG, and WebP are allowed.' },
         { status: 400 }
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes)
 
     // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(filePath, buffer, {
         contentType: file.type,
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     const avatarUrl = urlData.publicUrl
 
     // Update user profile with new avatar URL
-    const { data: updatedProfile, error: updateError } = await supabase
+    const { error: updateError } = await supabase
       .from('profiles')
       .update({
         avatar_url: avatarUrl,
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    const supabase = createRouteHandlerClient()
     
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     

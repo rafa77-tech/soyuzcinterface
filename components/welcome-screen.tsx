@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button'
 import { CheckCircle, Clock, Users, Award } from 'lucide-react'
 
 interface WelcomeScreenProps {
-  onStart: () => void
+  onNext: () => void
 }
 
-export function WelcomeScreen({ onStart }: WelcomeScreenProps) {
+export function WelcomeScreen({ onNext }: WelcomeScreenProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
       <Card className="stellar-card w-full max-w-4xl">
@@ -139,7 +139,7 @@ export function WelcomeScreen({ onStart }: WelcomeScreenProps) {
           {/* CTA */}
           <div className="text-center">
             <Button 
-              onClick={onStart}
+              onClick={onNext}
               size="lg"
               className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg stellar-glow"
             >

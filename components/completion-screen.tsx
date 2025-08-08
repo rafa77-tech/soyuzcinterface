@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Download, RotateCcw, TrendingUp, Users, Target, Brain } from 'lucide-react'
 
@@ -42,10 +42,11 @@ export function CompletionScreen({
     percentage: (value / 5) * 100
   }))
 
-  const softSkillsChartData = Object.entries(softSkillsResults).map(([key, value]) => ({
-    skill: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
-    score: value as number
-  }))
+  // Chart data for future use
+  // const softSkillsChartData = Object.entries(softSkillsResults).map(([key, value]) => ({
+  //   skill: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
+  //   score: value as number
+  // }))
 
   const radarData = Object.entries(softSkillsResults).map(([key, value]) => ({
     skill: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).substring(0, 10),
