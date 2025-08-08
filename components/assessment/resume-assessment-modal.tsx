@@ -83,28 +83,26 @@ export function ResumeAssessmentModal({
           <AlertDialogTitle className="text-white text-xl">
             Avaliação Incompleta Encontrada
           </AlertDialogTitle>
-          <AlertDialogDescription className="text-gray-300 space-y-3">
-            <p>
-              Encontramos uma avaliação que você começou mas não finalizou.
-            </p>
-            <div className="bg-gray-800/50 p-4 rounded-lg space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Tipo:</span>
-                <span className="text-white">{getAssessmentTypeLabel(assessment.type)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Iniciada em:</span>
-                <span className="text-white">{formatDate(assessment.created_at)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Status:</span>
-                <span className="text-yellow-400 capitalize">{assessment.status === 'in_progress' ? 'Em Progresso' : assessment.status}</span>
-              </div>
-            </div>
-            <p className="text-sm">
-              Você gostaria de continuar de onde parou ou começar uma nova avaliação?
-            </p>
+          <AlertDialogDescription className="text-gray-300">
+            Encontramos uma avaliação que você começou mas não finalizou.
           </AlertDialogDescription>
+          <div className="bg-gray-800/50 p-4 rounded-lg space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Tipo:</span>
+              <span className="text-white">{getAssessmentTypeLabel(assessment.type)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Iniciada em:</span>
+              <span className="text-white">{formatDate(assessment.created_at)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Status:</span>
+              <span className="text-yellow-400 capitalize">{assessment.status === 'in_progress' ? 'Em Progresso' : assessment.status}</span>
+            </div>
+          </div>
+          <p className="text-sm text-gray-300">
+            Você gostaria de continuar de onde parou ou começar uma nova avaliação?
+          </p>
         </AlertDialogHeader>
         <AlertDialogFooter className="space-x-2">
           <AlertDialogCancel 

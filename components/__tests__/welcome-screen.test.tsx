@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react'
-import WelcomeScreen from '../welcome-screen'
+import { WelcomeScreen } from '../welcome-screen'
 import { AuthProvider } from '../providers/auth-provider'
 import { ThemeProvider } from '../theme-provider'
 

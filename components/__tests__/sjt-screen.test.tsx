@@ -85,9 +85,10 @@ describe('SJTScreen', () => {
     it('should show correct progress for each scenario', () => {
       render(<SJTScreen onNext={mockOnNext} onResults={mockOnResults} />)
 
-      // Progress bar should show 33.33% for first scenario (1/3)
+      // Progress bar should show ~33.33% for first scenario (1/3)
       const progressBar = screen.getByRole('progressbar')
-      expect(progressBar).toHaveAttribute('aria-valuenow', '33.333333333333336')
+      const progressValue = Number(progressBar.getAttribute('aria-valuenow'))
+      expect(progressValue).toBeCloseTo(33.33, 2) // Use toBeCloseTo for floating point
     })
   })
 
@@ -103,23 +104,26 @@ describe('SJTScreen', () => {
     })
 
     it('should load saved data on component mount', async () => {
-      const savedResults = [9, 8, 7] // Partially completed assessment
+      const savedResults = [9, 8] // Partially completed assessment - 2 of 3 scenarios done
+      const mockLoadIncompleteAssessment = jest.fn().mockResolvedValue({
+        sjt_results: savedResults,
+      })
       
       mockUseAssessmentAutoSave.mockReturnValue({
         ...defaultAutoSaveMock,
-        loadIncompleteAssessment: jest.fn().mockResolvedValue({
-          sjt_results: savedResults,
-        }),
+        loadIncompleteAssessment: mockLoadIncompleteAssessment,
       })
 
       render(<SJTScreen onNext={mockOnNext} onResults={mockOnResults} />)
 
+      // Wait for async state updates to complete
       await waitFor(() => {
-        expect(mockUseAssessmentAutoSave().loadIncompleteAssessment).toHaveBeenCalled()
+        expect(mockLoadIncompleteAssessment).toHaveBeenCalled()
       })
 
-      // Should show current scenario as 4th (index 3) since 3 are already completed
-      expect(screen.getByText('3 de 3')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('3 de 3')).toBeInTheDocument()
+      })
     })
 
     it('should trigger auto-save immediately after answer selection', async () => {

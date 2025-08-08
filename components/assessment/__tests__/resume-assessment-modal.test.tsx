@@ -4,9 +4,14 @@ import { ResumeAssessmentModal } from '../resume-assessment-modal'
 describe('ResumeAssessmentModal', () => {
   const mockAssessment = {
     id: 'test-id',
-    created_at: '2024-01-01',
-    assessment_type: 'combined' as const,
-    progress_data: { currentStep: 1 }
+    user_id: 'user-id',
+    type: 'complete' as const,
+    status: 'in_progress' as const,
+    disc_results: null,
+    soft_skills_results: null,
+    sjt_results: null,
+    created_at: '2024-01-01T10:00:00.000Z',
+    completed_at: null
   }
 
   it('should render when open', () => {
@@ -19,7 +24,7 @@ describe('ResumeAssessmentModal', () => {
         onStartNew={jest.fn()}
       />
     )
-    expect(screen.getByText('Retomar Avaliação')).toBeInTheDocument()
+    expect(screen.getByText('Avaliação Incompleta Encontrada')).toBeInTheDocument()
   })
 
   it('should not render when closed', () => {

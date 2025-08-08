@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react'
-import MiniDiscScreen from '../mini-disc-screen'
+import { MiniDiscScreen } from '../mini-disc-screen'
 import { AuthProvider } from '../providers/auth-provider'
 import { ThemeProvider } from '../theme-provider'
 
