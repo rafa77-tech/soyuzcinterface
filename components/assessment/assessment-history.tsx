@@ -1,395 +1,313 @@
-import { useState, useEffect } from 'react'
+'use client'
+
+import React, { useState } from 'react'
+import { format } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
+import { Calendar, Clock, Filter, Download, Search, RefreshCw, BarChart3, FileText, Users, Brain } from 'lucide-react'
+
+import { useAssessmentHistory, type AssessmentFilters } from '@/hooks/use-assessment-history'
+import { type AssessmentData } from '@/lib/services/assessment-service'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { AssessmentData } from '@/lib/services/assessment-service'
-import { 
-  Calendar, 
-  Clock, 
-  FileText, 
-  Filter, 
-  Search, 
-  ChevronLeft, 
-  ChevronRight,
-  Eye,
-  Download,
-  Trash2,
-  BarChart3
-} from 'lucide-react'
-import { CompactSaveIndicator } from './save-indicator'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+
+import { ResultsViewer } from './results-viewer'
+
+// Quick filter presets
+const QUICK_FILTERS = [
+  { label: 'Hoje', value: 'today' },
+  { label: 'Esta semana', value: 'week' },
+  { label: 'Este mês', value: 'month' },
+  { label: 'Últimos 3 meses', value: '3months' },
+  { label: 'Últimos 6 meses', value: '6months' }
+] as const
+
+// Assessment type configurations
+const ASSESSMENT_TYPES = {
+  complete: { label: 'Avaliação Completa', icon: BarChart3, color: 'bg-blue-500' },
+  disc: { label: 'DISC', icon: Users, color: 'bg-green-500' },
+  soft_skills: { label: 'Soft Skills', icon: Brain, color: 'bg-purple-500' },
+  sjt: { label: 'SJT', icon: FileText, color: 'bg-orange-500' }
+} as const
+
+// Status configurations
+const STATUS_CONFIG = {
+  completed: { label: 'Concluída', color: 'bg-green-100 text-green-800' },
+  in_progress: { label: 'Em andamento', color: 'bg-yellow-100 text-yellow-800' },
+  abandoned: { label: 'Abandonada', color: 'bg-gray-100 text-gray-800' }
+} as const
 
 interface AssessmentHistoryProps {
   userId: string
-  onViewAssessment?: (assessment: AssessmentData) => void
-  onExportAssessment?: (assessment: AssessmentData) => void
-  className?: string
 }
 
-interface ListParams {
-  page: number
-  limit: number
-  type?: string
-  status?: string
-  dateFrom?: string
-  dateTo?: string
-}
+export function AssessmentHistory({ userId }: AssessmentHistoryProps) {
+  const {
+    assessments,
+    filteredAssessments,
+    allAssessments,
+    filters,
+    pagination,
+    isLoading,
+    error,
+    setFilters,
+    resetFilters,
+    setPage,
+    refresh,
+    stats
+  } = useAssessmentHistory(userId)
 
-export function AssessmentHistory({ 
-  userId, 
-  onViewAssessment, 
-  onExportAssessment,
-  className = '' 
-}: AssessmentHistoryProps) {
-  const [assessments, setAssessments] = useState<AssessmentData[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [searchTerm, setSearchTerm] = useState('')
-  
-  // Pagination state
-  const [pagination, setPagination] = useState({
-    currentPage: 1,
-    totalPages: 1,
-    totalCount: 0,
-    pageSize: 10,
-    hasNextPage: false,
-    hasPrevPage: false
-  })
+  // Debug: Log the hook result
+  console.log('Hook Result:', { assessments, stats, isLoading, error })
 
-  // Filter state
-  const [filters, setFilters] = useState<ListParams>({
-    page: 1,
-    limit: 10
-  })
+  const [selectedAssessment, setSelectedAssessment] = useState<AssessmentData | null>(null)
+  const [showFilters, setShowFilters] = useState(false)
 
-  // Load assessments
-  const loadAssessments = async (params: ListParams) => {
-    setIsLoading(true)
-    setError(null)
+  // Handle quick filter selection
+  const handleQuickFilter = (filterValue: string) => {
+    const now = new Date()
+    let dateFrom: Date | null = null
 
+    switch (filterValue) {
+      case 'today':
+        dateFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        break
+      case 'week':
+        dateFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        break
+      case 'month':
+        dateFrom = new Date(now.getFullYear(), now.getMonth(), 1)
+        break
+      case '3months':
+        dateFrom = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate())
+        break
+      case '6months':
+        dateFrom = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate())
+        break
+    }
+
+    if (dateFrom) {
+      setFilters({ dateFrom, dateTo: now })
+    }
+  }
+
+  // Handle filter changes
+  const handleFilterChange = (key: keyof AssessmentFilters, value: any) => {
+    setFilters({ [key]: value === '' ? undefined : value })
+  }
+
+  // Format completion time
+  const formatCompletionTime = (assessment: AssessmentData): string => {
+    if (assessment.status !== 'completed' || !assessment.created_at || !assessment.completed_at) {
+      return 'N/A'
+    }
+
+    const start = new Date(assessment.created_at)
+    const end = new Date(assessment.completed_at)
+    const diffMs = end.getTime() - start.getTime()
+    const diffMins = Math.round(diffMs / (1000 * 60))
+
+    if (diffMins < 60) {
+      return `${diffMins}min`
+    } else {
+      const hours = Math.floor(diffMins / 60)
+      const mins = diffMins % 60
+      return `${hours}h ${mins}min`
+    }
+  }
+
+  // Export functionality
+  const handleExport = async (assessment: AssessmentData, format: 'pdf' | 'csv') => {
     try {
-      const queryParams = new URLSearchParams()
-      queryParams.append('page', params.page.toString())
-      queryParams.append('limit', params.limit.toString())
-      
-      if (params.type) queryParams.append('type', params.type)
-      if (params.status) queryParams.append('status', params.status)
-      if (params.dateFrom) queryParams.append('date_from', params.dateFrom)
-      if (params.dateTo) queryParams.append('date_to', params.dateTo)
-
-      const response = await fetch(`/api/assessments?${queryParams}`)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      
-      setAssessments(data.data)
-      setPagination(data.pagination)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar avaliações')
-      setAssessments([])
-    } finally {
-      setIsLoading(false)
+      console.log(`Exporting assessment ${assessment.id} as ${format}`)
+    } catch (error) {
+      console.error('Export failed:', error)
     }
   }
 
-  // Load assessments on mount and filter changes
-  useEffect(() => {
-    loadAssessments(filters)
-  }, [filters])
+  // Loading skeleton
+  const LoadingSkeleton = () => (
+    <div className="space-y-4">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <Card key={i} className="animate-pulse">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-gray-200 rounded-lg"></div>
+                <div className="space-y-2">
+                  <div className="h-4 w-32 bg-gray-200 rounded"></div>
+                  <div className="h-3 w-24 bg-gray-200 rounded"></div>
+                </div>
+              </div>
+              <div className="h-8 w-20 bg-gray-200 rounded"></div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
 
-  // Update filters
-  const updateFilters = (newFilters: Partial<ListParams>) => {
-    setFilters(prev => ({ ...prev, ...newFilters, page: 1 }))
-  }
-
-  // Handle pagination
-  const goToPage = (page: number) => {
-    setFilters(prev => ({ ...prev, page }))
-  }
-
-  // Format type for display
-  const getTypeDisplay = (type: string) => {
-    switch (type) {
-      case 'disc': return 'DISC'
-      case 'soft_skills': return 'Soft Skills'
-      case 'sjt': return 'SJT'
-      case 'complete': return 'Completa'
-      default: return type
-    }
-  }
-
-  // Format status for display
-  const getStatusDisplay = (status: string) => {
-    switch (status) {
-      case 'completed': return 'Concluída'
-      case 'in_progress': return 'Em Andamento'
-      case 'abandoned': return 'Abandonada'
-      default: return status
-    }
-  }
-
-  // Get status color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'bg-green-500/20 text-green-400'
-      case 'in_progress': return 'bg-blue-500/20 text-blue-400'
-      case 'abandoned': return 'bg-gray-500/20 text-gray-400'
-      default: return 'bg-gray-500/20 text-gray-400'
-    }
-  }
-
-  // Filter assessments by search term
-  const filteredAssessments = assessments.filter(assessment => {
-    if (!searchTerm) return true
-    
-    const searchLower = searchTerm.toLowerCase()
-    const typeMatch = getTypeDisplay(assessment.type).toLowerCase().includes(searchLower)
-    const statusMatch = getStatusDisplay(assessment.status).toLowerCase().includes(searchLower)
-    const dateMatch = new Date(assessment.created_at!).toLocaleDateString('pt-BR').includes(searchLower)
-    
-    return typeMatch || statusMatch || dateMatch
-  })
+  // Empty state
+  const EmptyState = () => (
+    <Card className="text-center py-12">
+      <CardContent>
+        <BarChart3 className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+          Nenhuma avaliação encontrada
+        </h3>
+        <p className="text-gray-500 mb-4">
+          {filteredAssessments.length === 0 && allAssessments.length > 0
+            ? 'Tente ajustar os filtros para encontrar suas avaliações.'
+            : 'Você ainda não possui avaliações. Comece sua primeira avaliação!'}
+        </p>
+        {filteredAssessments.length === 0 && allAssessments.length > 0 && (
+          <Button onClick={resetFilters} variant="outline">
+            Limpar filtros
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  )
 
   return (
-    <div className={`space-y-6 ${className}`}>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+    <div className="space-y-6">
+      {/* Header with stats */}
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Histórico de Avaliações</h2>
-          <p className="text-gray-400 mt-1">
-            Gerencie e visualize suas avaliações anteriores
+          <h1 className="text-2xl font-bold text-gray-900">Histórico de Avaliações</h1>
+          <p className="text-gray-500">
+            {stats.totalCompleted} concluídas • {stats.totalInProgress} em andamento
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <CompactSaveIndicator 
-            autoSaveState={{
-              assessmentId: null,
-              isSaving: isLoading,
-              lastSaved: null,
-              error: error
-            }}
-            showText={true}
-          />
+        <div className="flex items-center space-x-2">
+          <Button onClick={refresh} variant="outline" size="sm" disabled={isLoading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+          <Button
+            onClick={() => setShowFilters(!showFilters)}
+            variant="outline"
+            size="sm"
+          >
+            <Filter className="w-4 h-4 mr-2" />
+            Filtros
+          </Button>
         </div>
       </div>
 
-      {/* Filters and Search */}
-      <Card className="stellar-card border-purple-500/20">
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Buscar avaliações..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-gray-800 border-gray-700 text-white"
-              />
-            </div>
+      {/* Quick filters */}
+      <div className="flex flex-wrap gap-2">
+        {QUICK_FILTERS.map((filter) => (
+          <Button
+            key={filter.value}
+            onClick={() => handleQuickFilter(filter.value)}
+            variant="outline"
+            size="sm"
+          >
+            {filter.label}
+          </Button>
+        ))}
+      </div>
 
-            {/* Type Filter */}
-            <Select value={filters.type || ''} onValueChange={(value) => updateFilters({ type: value || undefined })}>
-              <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                <SelectValue placeholder="Tipo de avaliação" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Todos os tipos</SelectItem>
-                <SelectItem value="complete">Completa</SelectItem>
-                <SelectItem value="disc">DISC</SelectItem>
-                <SelectItem value="soft_skills">Soft Skills</SelectItem>
-                <SelectItem value="sjt">SJT</SelectItem>
-              </SelectContent>
-            </Select>
+      {/* Error state */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Erro ao carregar histórico: {error.message}
+            <Button onClick={refresh} variant="outline" size="sm" className="ml-2">
+              Tentar novamente
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
-            {/* Status Filter */}
-            <Select value={filters.status || ''} onValueChange={(value) => updateFilters({ status: value || undefined })}>
-              <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Todos os status</SelectItem>
-                <SelectItem value="completed">Concluída</SelectItem>
-                <SelectItem value="in_progress">Em Andamento</SelectItem>
-                <SelectItem value="abandoned">Abandonada</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Date Range - Simplified */}
-            <Select 
-              value={filters.dateFrom || ''} 
-              onValueChange={(value) => {
-                if (value === '30') {
-                  const date = new Date()
-                  date.setDate(date.getDate() - 30)
-                  updateFilters({ dateFrom: date.toISOString() })
-                } else if (value === '7') {
-                  const date = new Date()
-                  date.setDate(date.getDate() - 7)
-                  updateFilters({ dateFrom: date.toISOString() })
-                } else {
-                  updateFilters({ dateFrom: undefined })
-                }
-              }}
-            >
-              <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                <SelectValue placeholder="Período" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Todo período</SelectItem>
-                <SelectItem value="7">Últimos 7 dias</SelectItem>
-                <SelectItem value="30">Últimos 30 dias</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Results */}
+      {/* Assessment list */}
       <div className="space-y-4">
-        {error && (
-          <Card className="border-red-500/20 bg-red-500/5">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-red-400">
-                <Trash2 className="h-4 w-4" />
-                <span>Erro ao carregar avaliações: {error}</span>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="flex items-center gap-3 text-gray-400">
-              <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              Carregando avaliações...
-            </div>
-          </div>
-        ) : filteredAssessments.length === 0 ? (
-          <Card className="stellar-card">
-            <CardContent className="p-8 text-center">
-              <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-white mb-2">
-                Nenhuma avaliação encontrada
-              </h3>
-              <p className="text-gray-400">
-                {searchTerm || filters.type || filters.status 
-                  ? 'Tente ajustar os filtros para encontrar avaliações.'
-                  : 'Você ainda não realizou nenhuma avaliação.'
-                }
-              </p>
-            </CardContent>
-          </Card>
+          <LoadingSkeleton />
+        ) : assessments.length === 0 ? (
+          <EmptyState />
         ) : (
-          <>
-            {/* Assessment List */}
-            <div className="space-y-3">
-              {filteredAssessments.map((assessment) => (
-                <Card key={assessment.id} className="stellar-card hover:border-purple-500/30 transition-colors">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className="p-2 bg-purple-500/20 rounded-lg flex-shrink-0">
-                          <BarChart3 className="h-5 w-5 text-purple-400" />
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-medium text-white truncate">
-                              Avaliação {getTypeDisplay(assessment.type)}
-                            </h3>
-                            <Badge className={getStatusColor(assessment.status)}>
-                              {getStatusDisplay(assessment.status)}
-                            </Badge>
+          assessments.map((assessment) => {
+            const typeConfig = ASSESSMENT_TYPES[assessment.type]
+            const statusConfig = STATUS_CONFIG[assessment.status as keyof typeof STATUS_CONFIG]
+            const IconComponent = typeConfig.icon
+
+            return (
+              <Card key={assessment.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      {/* Type icon */}
+                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${typeConfig.color}`}>
+                        <IconComponent className="w-6 h-6 text-white" />
+                      </div>
+
+                      {/* Assessment info */}
+                      <div>
+                        <h3 className="font-semibold text-gray-900">
+                          {typeConfig.label}
+                        </h3>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500">
+                          <div className="flex items-center">
+                            <Calendar className="w-4 h-4 mr-1" />
+                            {assessment.created_at && format(new Date(assessment.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
                           </div>
-                          
-                          <div className="flex items-center gap-4 text-sm text-gray-400">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              {new Date(assessment.created_at!).toLocaleDateString('pt-BR')}
-                            </div>
-                            {assessment.completed_at && (
-                              <div className="flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
-                                Concluída em {new Date(assessment.completed_at).toLocaleDateString('pt-BR')}
-                              </div>
-                            )}
+                          <div className="flex items-center">
+                            <Clock className="w-4 h-4 mr-1" />
+                            {formatCompletionTime(assessment)}
                           </div>
                         </div>
                       </div>
+                    </div>
 
-                      <div className="flex items-center gap-2">
-                        {assessment.status === 'completed' && onViewAssessment && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => onViewAssessment(assessment)}
-                            className="border-gray-600 text-gray-300 hover:bg-gray-800"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        )}
-                        
-                        {assessment.status === 'completed' && onExportAssessment && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => onExportAssessment(assessment)}
-                            className="border-gray-600 text-gray-300 hover:bg-gray-800"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
+                    {/* Status and actions */}
+                    <div className="flex items-center space-x-3">
+                      <Badge className={statusConfig.color}>
+                        {statusConfig.label}
+                      </Badge>
+
+                      <div className="flex items-center space-x-2">
+                        {assessment.status === 'completed' && (
+                          <>
+                            <Button
+                              onClick={() => setSelectedAssessment(assessment)}
+                              variant="outline"
+                              size="sm"
+                            >
+                              Ver resultados
+                            </Button>
+                            <Button
+                              onClick={() => handleExport(assessment, 'pdf')}
+                              variant="outline"
+                              size="sm"
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Pagination */}
-            {pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-400">
-                  Mostrando {((pagination.currentPage - 1) * pagination.pageSize) + 1} a{' '}
-                  {Math.min(pagination.currentPage * pagination.pageSize, pagination.totalCount)} de{' '}
-                  {pagination.totalCount} avaliações
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => goToPage(pagination.currentPage - 1)}
-                    disabled={!pagination.hasPrevPage}
-                    className="border-gray-600"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  
-                  <span className="text-sm text-white px-3 py-1">
-                    {pagination.currentPage} de {pagination.totalPages}
-                  </span>
-                  
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => goToPage(pagination.currentPage + 1)}
-                    disabled={!pagination.hasNextPage}
-                    className="border-gray-600"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })
         )}
       </div>
+
+      {/* Results viewer modal */}
+      {selectedAssessment && (
+        <ResultsViewer
+          assessment={selectedAssessment}
+          isOpen={!!selectedAssessment}
+          onClose={() => setSelectedAssessment(null)}
+        />
+      )}
     </div>
   )
 }

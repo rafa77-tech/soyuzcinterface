@@ -58,33 +58,39 @@ export interface Database {
           id: string
           user_id: string
           type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-          status: 'in_progress' | 'completed'
+          status: 'in_progress' | 'completed' | 'abandoned'
           disc_results: Json | null
           soft_skills_results: Json | null
           sjt_results: Json | null
+          progress_data: Json | null
           created_at: string
+          updated_at: string
           completed_at: string | null
         }
         Insert: {
           id?: string
           user_id: string
           type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-          status?: 'in_progress' | 'completed'
+          status?: 'in_progress' | 'completed' | 'abandoned'
           disc_results?: Json | null
           soft_skills_results?: Json | null
           sjt_results?: Json | null
+          progress_data?: Json | null
           created_at?: string
+          updated_at?: string
           completed_at?: string | null
         }
         Update: {
           id?: string
           user_id?: string
           type?: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-          status?: 'in_progress' | 'completed'
+          status?: 'in_progress' | 'completed' | 'abandoned'
           disc_results?: Json | null
           soft_skills_results?: Json | null
           sjt_results?: Json | null
+          progress_data?: Json | null
           created_at?: string
+          updated_at?: string
           completed_at?: string | null
         }
         Relationships: [
@@ -127,20 +133,19 @@ export interface DiscResults {
   I: number
   S: number
   C: number
+  responses?: Record<string, string>
 }
 
 export interface SoftSkillsResults {
   comunicacao: number
   lideranca: number
+  trabalhoEmEquipe: number
+  resolucaoProblemas: number
+  adaptabilidade: number
   [key: string]: number
 }
 
-export type SjtResults = number[]
-
-export interface AssessmentData {
-  type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-  status?: 'in_progress' | 'completed'
-  disc_results?: DiscResults | null
-  soft_skills_results?: SoftSkillsResults | null
-  sjt_results?: SjtResults | null
+export interface SjtResults {
+  responses: number[]
+  scores: number[]
 }

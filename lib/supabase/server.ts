@@ -14,3 +14,6 @@ export const createRouteHandlerClient = () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 }
+
+// Default server supabase client
+export const supabase = createServerClient()

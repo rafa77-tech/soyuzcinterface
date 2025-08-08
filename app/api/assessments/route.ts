@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
+import { supabase } from '@/lib/supabase/server'
 import { assessmentService } from '../../../lib/services/assessment-service'
 import { z } from 'zod'
 
@@ -17,7 +17,6 @@ const ListAssessmentsParamsSchema = z.object({
 export async function GET(request: NextRequest) {
   try {
     // Get authenticated user
-    const supabase = createRouteHandlerClient({ cookies })
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     
     if (authError || !session?.user) {

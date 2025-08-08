@@ -1,44 +1,21 @@
 import { supabase } from '../supabase/client'
+import type { 
+  Assessment, 
+  AssessmentInsert, 
+  AssessmentUpdate,
+  DiscResults,
+  SoftSkillsResults,
+  SjtResults 
+} from '../supabase/types'
 
-// Types for assessment data
-export interface DiscResults {
-  D: number
-  I: number
-  S: number
-  C: number
-  responses?: Record<string, string>
-}
+// Export types for external use
+export type { DiscResults, SoftSkillsResults, SjtResults }
 
-export interface SoftSkillsResults {
-  comunicacao: number
-  lideranca: number
-  trabalhoEmEquipe: number
-  resolucaoProblemas: number
-  adaptabilidade: number
-  [key: string]: number
-}
-
-export interface SjtResults {
-  responses: number[]
-  scores: number[]
-}
-
-export interface AssessmentData {
-  id?: string
-  user_id?: string
-  type: 'complete' | 'disc' | 'soft_skills' | 'sjt'
-  status: 'in_progress' | 'completed' | 'abandoned'
-  disc_results?: DiscResults
-  soft_skills_results?: SoftSkillsResults
-  sjt_results?: SjtResults
-  progress_data?: any
-  created_at?: string
-  updated_at?: string
-  completed_at?: string
-}
+// Use Assessment type from Supabase types
+export type AssessmentData = Assessment
 
 export interface SaveAssessmentParams {
-  assessmentData: Partial<AssessmentData>
+  assessmentData: Partial<AssessmentInsert>
   userId: string
   isUpdate?: boolean
 }
@@ -52,8 +29,8 @@ export class AssessmentPersistenceService {
   async saveAssessment(params: SaveAssessmentParams): Promise<AssessmentData> {
     const { assessmentData, userId, isUpdate = false } = params
     
-    // Add user_id and timestamps
-    const dataToSave = {
+    // Prepare data for save with proper typing
+    const dataToSave: AssessmentInsert = {
       ...assessmentData,
       user_id: userId,
       updated_at: new Date().toISOString(),
@@ -64,16 +41,25 @@ export class AssessmentPersistenceService {
 
     return this.executeWithRetry(async () => {
       if (isUpdate && assessmentData.id) {
+        // Use update type for updates
+        const updateData: AssessmentUpdate = {
+          ...assessmentData,
+          updated_at: new Date().toISOString(),
+          ...(assessmentData.status === 'completed' && !assessmentData.completed_at && {
+            completed_at: new Date().toISOString()
+          })
+        }
+
         const { data, error } = await supabase
           .from('assessments')
-          .update(dataToSave)
+          .update(updateData)
           .eq('id', assessmentData.id)
           .eq('user_id', userId)
           .select()
           .single()
 
         if (error) throw error
-        return data
+        return data as AssessmentData
       } else {
         const { data, error } = await supabase
           .from('assessments')
@@ -82,7 +68,7 @@ export class AssessmentPersistenceService {
           .single()
 
         if (error) throw error
-        return data
+        return data as AssessmentData
       }
     })
   }
@@ -96,19 +82,21 @@ export class AssessmentPersistenceService {
     userId: string
   ): Promise<AssessmentData> {
     return this.executeWithRetry(async () => {
+      const updateData: AssessmentUpdate = {
+        progress_data: progressData,
+        updated_at: new Date().toISOString()
+      }
+
       const { data, error } = await supabase
         .from('assessments')
-        .update({
-          progress_data: progressData,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', assessmentId)
         .eq('user_id', userId)
         .select()
         .single()
 
       if (error) throw error
-      return data
+      return data as AssessmentData
     })
   }
 
@@ -184,12 +172,14 @@ export class AssessmentPersistenceService {
    * Marks an assessment as abandoned
    */
   async abandonAssessment(assessmentId: string, userId: string): Promise<void> {
+    const updateData: AssessmentUpdate = {
+      status: 'abandoned',
+      updated_at: new Date().toISOString()
+    }
+
     const { error } = await supabase
       .from('assessments')
-      .update({ 
-        status: 'abandoned',
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', assessmentId)
       .eq('user_id', userId)
 

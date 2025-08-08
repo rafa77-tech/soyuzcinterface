@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
+import { supabase } from '@/lib/supabase/server'
 import { assessmentService, AssessmentData } from '../../../lib/services/assessment-service'
 import { z } from 'zod'
 
@@ -61,7 +61,6 @@ function checkRateLimit(userId: string): boolean {
 export async function POST(request: NextRequest) {
   try {
     // Get authenticated user
-    const supabase = createRouteHandlerClient({ cookies })
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     
     if (authError || !session?.user) {
@@ -135,7 +134,6 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     // Get authenticated user
-    const supabase = createRouteHandlerClient({ cookies })
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     
     if (authError || !session?.user) {
